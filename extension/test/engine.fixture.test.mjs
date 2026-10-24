@@ -291,3 +291,54 @@ test('ACTIVATION SNAPSHOT: enable karte hi purana incoming message trigger NAHI 
   await sleep(250);
   assert.equal(calls.length, 1, 'activation ke baad ka naya message trigger hota hai');
 });
+
+test('IN-FLIGHT CANCEL: reply aane se pehle owner off kare to late reply discard hoti hai', async (t) => {
+  let resolveReply;
+  const pending = new Promise((r) => { resolveReply = r; });
+  const { window } = makeWorld({
+    sendMessage: () => pending,
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
+  }, t);
+  await enableChat(window);
+  appendIncoming(window, 'aaa', 'hello ji');
+  await sleep(120); // batch fire ho gayi, request in-flight
+  const btn = window.document.getElementById('cc-toggle-btn');
+  btn.click(); // owner off, reply abhi nahi aayi
+  await sleep(60);
+  resolveReply({ ok: true, data: { reply: 'LATE REPLY' } });
+  await sleep(120);
+  assert.equal(composerOf(window).textContent, '', 'late reply insert NAHI hui');
+  const stored = window.document.querySelector('.msgs').textContent;
+  assert.ok(!stored.includes('LATE REPLY'));
+});
+
+test('STOP ALL: global stop par koi request nahi, in-flight discard; resume explicit', async (t) => {
+  let resolveReply;
+  const pending = new Promise((r) => { resolveReply = r; });
+  const { window, calls } = makeWorld({
+    sendMessage: (m) => { return pending; },
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
+  }, t);
+  await enableChat(window);
+  const stopAllBtn = window.document.getElementById('cc-stopall-btn');
+  assert.ok(stopAllBtn, 'Stop all button dikhna chahiye');
+
+  appendIncoming(window, 'aaa', 'pehla');
+  await sleep(120); // request in-flight
+  stopAllBtn.click(); // STOP ALL
+  await sleep(80);
+  resolveReply({ ok: true, data: { reply: 'LATE GLOBAL' } });
+  await sleep(120);
+  assert.equal(composerOf(window).textContent, '', 'global stop ke baad late reply discard');
+
+  const callsBefore = calls.length;
+  appendIncoming(window, 'aaa', 'doosra', 100);
+  await sleep(250);
+  assert.equal(calls.length, callsBefore, 'stopped state mein naya incoming trigger nahi');
+
+  stopAllBtn.click(); // Resume all (explicit)
+  await sleep(80);
+  appendIncoming(window, 'aaa', 'teesra', 101);
+  await sleep(250);
+  assert.equal(calls.length, callsBefore + 1, 'resume ke baad naya message phir trigger hota hai');
+});

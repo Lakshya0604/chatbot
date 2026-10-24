@@ -50,6 +50,11 @@
     let batchTimer = null;
     let busy = false;
     let lastSeenIncoming = '';
+    // epoch: har stop/off/state-change par badhta hai. In-flight AI request ka
+    // late reply tab discard hota hai jab epoch badal chuka ho.
+    let epoch = 0;
+    const GLOBAL_STOP_KEY = 'globalStop';
+    const STOPALL_ID = 'cc-stopall-btn';
     // Page load ke baad jin active chats ka "ab tak ka last incoming" snapshot
     // ho chuka hai. Bina snapshot ke enable karte hi PURANE incoming message par
     // reply ban jaati - activation ke baad AAYE messages par hi react karna hai.
@@ -68,6 +73,15 @@
 
     // ---------- consent state machine ----------
     // states: (none) -> pending -> active -> stopped (stopped se wapas none = fresh consent)
+    async function isGlobalStopped() {
+      return Boolean(await storageGet('local', GLOBAL_STOP_KEY));
+    }
+    async function setGlobalStopped(on) {
+      epoch++;
+      if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+      await storageSet('local', { [GLOBAL_STOP_KEY]: on ? { ts: new Date().toISOString() } : null });
+    }
+
     async function getChatState(chatKey) {
       if (!chatKey) return null;
       const map = (await storageGet('local', 'chatConsent')) || {};
@@ -121,6 +135,23 @@
       // observer ko dobara trigger karti (infinite loop).
       const label = toggleLabel(state);
       if (btn.textContent !== label) btn.textContent = label;
+
+      // GLOBAL STOP ALL button: sab chats ek saath band/resume.
+      const header = document.querySelector(config.headerSelector);
+      let stopAll = document.getElementById(STOPALL_ID);
+      if (header && !stopAll) {
+        stopAll = document.createElement('button');
+        stopAll.id = STOPALL_ID;
+        stopAll.type = 'button';
+        stopAll.addEventListener('click', onStopAllClick);
+        header.appendChild(stopAll);
+      }
+      if (stopAll) {
+        const stopped = await isGlobalStopped();
+        const sl = stopped ? 'Resume all' : 'Stop all';
+        if (stopAll.textContent !== sl) stopAll.textContent = sl;
+        stopAll.dataset.stopped = stopped ? 'true' : 'false';
+      }
       const enabled = state && state.state === 'active' ? 'true' : 'false';
       if (btn.dataset.enabled !== enabled) btn.dataset.enabled = enabled;
       if (state && state.state === 'active' && !bootSynced.has(chatKey)) {
@@ -136,12 +167,27 @@
       }
     }
 
+    async function onStopAllClick() {
+      const stopped = await isGlobalStopped();
+      if (!stopped) {
+        // STOP ALL: queued batch cancel, in-flight discard (epoch), sab chats dormant.
+        await setGlobalStopped(true);
+        showBanner('STOP ALL: sabhi chats par AI band. Resume all se hi wapas chalega.', null);
+      } else {
+        await setGlobalStopped(false);
+        showBanner('Resume ho gaya. Sirf enabled (consent-active) chats hi chalengi.', null);
+      }
+      refreshToggle();
+    }
+
     async function onToggleClick() {
       const chatKey = getChatKey();
       if (!chatKey) return;
       const state = await getChatState(chatKey);
 
       if (state && state.state === 'active') {
+        epoch++; // in-flight reply discard hogi
+        if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
         await setChatState(chatKey, null, 'owner ne band kiya');
         removeBanner();
         refreshToggle();
@@ -196,6 +242,12 @@
 
     // ---------- batching + trigger + STOP GATE ----------
     async function onPossibleNewMessage() {
+      if (await isGlobalStopped()) {
+        // Stop ke DORAAN aaye messages "seen" mark karo - resume par unka purana
+        // backlog reply na bane (sirf resume ke BAAD ke messages trigger honge).
+        snapshotIncoming();
+        return; // GLOBAL STOP ALL
+      }
       const enabled = document.getElementById(TOGGLE_ID);
       if (!enabled || enabled.dataset.enabled !== 'true') return;
       const chatKey = getChatKey();
@@ -208,6 +260,8 @@
 
       // STOP GATE: pehle stop check - ye message AI provider ko KABHI nahi jaata.
       if (stopPattern.test(last.content)) {
+        epoch++;
+        if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
         await setChatState(chatKey, 'stopped', 'recipient ne stop kaha: ' + last.content.slice(0, 80));
         showBanner('AI band kar diya - saamne wale ne stop kaha. Fresh consent ke bina wapas on nahi hoga.', null);
         refreshToggle();
@@ -244,10 +298,12 @@
     // ---------- reply generation ----------
     async function generateSuggestion() {
       if (busy) return;
+      if (await isGlobalStopped()) return;
       const chatKey = getChatKey();
       if (!chatKey) return;
       const state = await getChatState(chatKey);
       if (!state || state.state !== 'active') return; // consent gate: pending/stopped = kuch nahi
+      const myEpoch = epoch;
 
       const messages = readMessages();
       if (!messages.length || messages[messages.length - 1].role !== 'user') return;
@@ -263,11 +319,19 @@
 
       busy = true;
       showBanner('AI soch raha hai...', null);
+      const discardIfStale = async () => {
+        // Owner ne stop/off kiya ya global stop aaya beech mein -> reply discard.
+        if (epoch !== myEpoch) return true;
+        if (await isGlobalStopped()) return true;
+        const st = await getChatState(chatKey);
+        return !st || st.state !== 'active';
+      };
       try {
         const response = await chrome.runtime.sendMessage({
           type: 'GENERATE_REPLY',
           payload: { character, messages, backendUrl },
         });
+        if (await discardIfStale()) return; // STOP: late reply discard, kuch insert nahi
         if (response && response.ok && response.data && response.data.reply) {
           deliverSuggestion(chatKey, response.data.reply + aiMarker);
         } else {
