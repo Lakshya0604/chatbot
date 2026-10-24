@@ -4,6 +4,7 @@
 
 const FIELDS = [
   'name', 'gender', 'role', 'tone', 'humour', 'replyLength',
+  'age', 'backstory', 'vocabulary', 'defaultMood',
   'topics', 'boundaries', 'styleExamples', 'backendUrl', 'authToken',
 ];
 const CHECKBOXES = ['playful', 'flirting'];

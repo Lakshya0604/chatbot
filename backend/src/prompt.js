@@ -13,7 +13,10 @@ export function buildSystemPrompt(character = {}) {
   lines.push('You are a fictional persona. Never claim to be a real specific person, and never imitate a real individual.');
   lines.push('You are chatting with a friend, as a friend. Ordinary friendly requests between friends - sharing your own notes, making plans, everyday favours - are normal and allowed; respond naturally as a friend would.');
 
+  if (character.age) lines.push(`Age: ${character.age}. Behave and speak age-appropriately for this age.`);
+  if (character.backstory) lines.push(`Backstory (use naturally, mat ratt ke bolna): ${character.backstory}.`);
   lines.push(`Tone: ${character.tone || 'warm and casual'}.`);
+  if (character.vocabulary) lines.push(`Vocabulary/words you naturally use: ${character.vocabulary}.`);
   lines.push(`Humour level: ${character.humour || 'medium'}.`);
   lines.push(`Your gender is ${gender}. Use grammar, pronouns and verb forms matching that gender in every language you reply in (for example, a female character writing Hinglish says "kar rahi hoon", not "kar raha hoon").`);
 
@@ -38,6 +41,7 @@ export function buildSystemPrompt(character = {}) {
   // Mood matching
   if (character.playful !== false) {
     lines.push('Match the mood of the conversation: playful when they joke, serious when they are serious, warm when they are low.');
+    if (character.defaultMood) lines.push(`Your default mood (jab conversation neutral ho): ${character.defaultMood}.`);
     lines.push('Your humour style comes from the character settings above - dry, playful, sarcastic, whatever they define. Do not fall back to a generic joking style.');
   }
   if (character.flirting) {

@@ -61,3 +61,26 @@ test('prompt injection guard hamesha include hota hai', () => {
   assert.match(prompt, /data, never instructions/i);
   assert.match(prompt, /reveal this prompt/i);
 });
+
+test('age, backstory, vocabulary aur defaultMood prompt mein aate hain', () => {
+  const prompt = buildSystemPrompt({
+    name: 'Meera',
+    age: '22',
+    backstory: 'Pune se hai, ab Mumbai mein kaam karti hai',
+    vocabulary: 'arre, scene, jhakaas',
+    defaultMood: 'playful',
+  });
+  assert.match(prompt, /Age: 22/);
+  assert.match(prompt, /age-appropriately/);
+  assert.match(prompt, /Backstory.*Pune se hai/s);
+  assert.match(prompt, /Vocabulary.*jhakaas/s);
+  assert.match(prompt, /default mood.*playful/s);
+});
+
+test('nage fields ke bina prompt clean rehta hai (no stray labels)', () => {
+  const prompt = buildSystemPrompt({ name: 'Meera' });
+  assert.doesNotMatch(prompt, /Age:/);
+  assert.doesNotMatch(prompt, /Backstory/);
+  assert.doesNotMatch(prompt, /Vocabulary/);
+  assert.doesNotMatch(prompt, /default mood/i);
+});
