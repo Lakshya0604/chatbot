@@ -342,3 +342,22 @@ test('STOP ALL: global stop par koi request nahi, in-flight discard; resume expl
   await sleep(250);
   assert.equal(calls.length, callsBefore + 1, 'resume ke baad naya message phir trigger hota hai');
 });
+
+test('BURST BATCHING: 2 rapid incoming messages = sirf 1 AI request (debounce)', async (t) => {
+  // Learn-verify: AnkitNayak-dev/AI-AutoReply-for-WhatsApp-Web ka silence-window
+  // debounce (unka 10s) hamare BATCH_DELAY_MS (2.5s) mechanism se match karta hai.
+  // Ye test lock karta hai ki burst mein duplicate provider calls nahi jaate.
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'ek hi reply' } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla jawab' }]),
+  }, t);
+  await enableChat(window);
+  appendIncoming(window, 'aaa', 'pehla message');
+  await sleep(BATCH / 2); // batch window ke ANDAR doosra message
+  appendIncoming(window, 'aaa', 'doosra message turant peeche');
+  await sleep(BATCH + 100);
+
+  assert.equal(calls.length, 1, 'burst mein sirf 1 request jaani chahiye');
+  assert.equal(calls[0].payload.messages.at(-1).content, 'doosra message turant peeche',
+    'latest message ke saath ek hi call');
+});
