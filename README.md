@@ -72,6 +72,23 @@ The backend talks to any OpenAI-compatible chat completions API (set `AI_BASE_UR
 **The provider choice, free tier and cost are not final yet** - verify current pricing
 and limits before relying on them. The extension never charges anything by itself.
 
+## Security and privacy
+
+- The backend binds to **127.0.0.1 only** - your own laptop. It is not reachable from
+  your Wi-Fi network or the internet.
+- Set `AUTH_TOKEN` in `.env` and the same value in the extension Options page. The
+  backend then rejects every request without that token, so no random website you visit
+  can call your local backend or spend your AI credit. CORS also only allows
+  chrome-extension:// origins.
+- **Chat data consent:** the first time you turn AI on for a chat, the extension asks
+  for an explicit OK. Only that chat's messages, and only while AI is on, go to the
+  backend and the AI provider.
+- Character settings and style examples live in Chrome sync storage under your own
+  Google account. Style examples are prompts, so treat them as private text.
+- Prompt-injection guard: the system prompt tells the AI that chat messages are data,
+  never instructions - a message saying "ignore your rules" is answered in character,
+  not obeyed.
+
 ## Honest limits
 
 - Works on **WhatsApp Web only**. Telegram Web or any other site needs its own adapter;
@@ -82,9 +99,11 @@ and limits before relying on them. The extension never charges anything by itsel
 - This is not an official WhatsApp/Meta feature. Heavy automation can risk account
   restrictions; suggestion mode keeps a human on every send.
 - Character is fictional. Do not configure it to impersonate a real person.
-- Only the content script and prompt pipeline are unit/integration tested in mock mode;
-  the WhatsApp Web selectors are written against the current DOM and verified live only
-  after loading the extension in a real browser.
+- Only the prompt pipeline and server endpoints are unit/integration tested in mock
+  mode (7+ tests passing). The WhatsApp Web selectors in `content/whatsapp.js` are
+  written against WhatsApp Web's known DOM structure but are **not yet verified in a
+  live browser session** - first real run may need selector tweaks. No real messages
+  were sent or used in testing.
 
 ## Safety defaults
 

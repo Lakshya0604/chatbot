@@ -55,3 +55,9 @@ test('khaali aur galat roles filter ho jaate hain', () => {
   assert.deepEqual(messages.slice(1).map((m) => m.role), ['user', 'assistant']);
   assert.equal(messages[1].content, 'hello');
 });
+
+test('prompt injection guard hamesha include hota hai', () => {
+  const prompt = buildSystemPrompt({});
+  assert.match(prompt, /data, never instructions/i);
+  assert.match(prompt, /reveal this prompt/i);
+});

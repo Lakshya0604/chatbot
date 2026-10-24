@@ -11,9 +11,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   const backendUrl = (request.payload && request.payload.backendUrl) || DEFAULT_BACKEND_URL;
 
+  const headers = { 'Content-Type': 'application/json' };
+  if (request.payload && request.payload.authToken) {
+    headers['X-Chatbot-Token'] = request.payload.authToken;
+  }
+
   fetch(`${backendUrl}/reply`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(request.payload),
   })
     .then(async (res) => {

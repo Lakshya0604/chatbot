@@ -75,6 +75,15 @@
     const chatKey = getChatKey();
     if (!chatKey) return;
     const enabled = await isChatEnabled(chatKey);
+    if (!enabled) {
+      // Pehli baar on karte waqt explicit consent: is chat ke messages reply banane
+      // ke liye tumhare backend se hote hue AI provider ko jaayenge.
+      const ok = window.confirm(
+        'Is chat ke messages AI provider ko bheje jaayenge taaki character wali reply ban sake.\n\n' +
+        'Sirf is chat ke liye, aur sirf jab AI on ho. OK to continue?'
+      );
+      if (!ok) return;
+    }
     await setChatEnabled(chatKey, !enabled);
     if (enabled) removeBanner(); // off karte hi pending suggestion hata do
     refreshToggle();
@@ -146,13 +155,14 @@
 
     const character = (await storageGet('sync', 'character')) || {};
     const backendUrl = (await storageGet('sync', 'backendUrl')) || undefined;
+    const authToken = (await storageGet('sync', 'authToken')) || undefined;
 
     busy = true;
     showBanner('AI soch raha hai...', null);
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'GENERATE_REPLY',
-        payload: { character, messages, backendUrl },
+        payload: { character, messages, backendUrl, authToken },
       });
       if (response && response.ok && response.data && response.data.reply) {
         insertSuggestion(response.data.reply);

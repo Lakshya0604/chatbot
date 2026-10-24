@@ -4,7 +4,7 @@
 
 const FIELDS = [
   'name', 'gender', 'role', 'tone', 'humour', 'replyLength',
-  'topics', 'boundaries', 'styleExamples', 'backendUrl',
+  'topics', 'boundaries', 'styleExamples', 'backendUrl', 'authToken',
 ];
 const CHECKBOXES = ['playful', 'flirting'];
 
@@ -16,6 +16,8 @@ function loadSettings() {
       if (!el) return;
       if (field === 'backendUrl') {
         el.value = result.backendUrl || 'http://localhost:8787';
+      } else if (field === 'authToken') {
+        el.value = result.authToken || '';
       } else {
         el.value = character[field] || '';
       }
@@ -30,15 +32,16 @@ function loadSettings() {
 function saveSettings() {
   const character = {};
   FIELDS.forEach((field) => {
-    if (field === 'backendUrl') return;
+    if (field === 'backendUrl' || field === 'authToken') return;
     character[field] = document.getElementById(field).value.trim();
   });
   CHECKBOXES.forEach((field) => {
     character[field] = document.getElementById(field).checked;
   });
   const backendUrl = document.getElementById('backendUrl').value.trim() || 'http://localhost:8787';
+  const authToken = document.getElementById('authToken').value.trim();
 
-  chrome.storage.sync.set({ character, backendUrl }, () => {
+  chrome.storage.sync.set({ character, backendUrl, authToken }, () => {
     const status = document.getElementById('status');
     status.textContent = 'Saved.';
     setTimeout(() => { status.textContent = ''; }, 2000);
