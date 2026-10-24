@@ -1,20 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Character Chatbot - WhatsApp Web Suggestions",
-  "version": "0.2.0",
-  "description": "AI character replies as suggestions inside WhatsApp Web. You review and send every message yourself. Auto-send is OFF.",
+  "name": "Character Chatbot - local AI reply assistant",
+  "version": "0.3.0",
+  "description": "Local character-based AI reply engine. Platform adapters are not yet available - see README status.",
   "permissions": ["storage"],
   "host_permissions": ["http://127.0.0.1:8787/*", "http://localhost:8787/*"],
   "background": {
     "service_worker": "background.js"
   },
-  "content_scripts": [
-    {
-      "matches": ["https://web.whatsapp.com/*"],
-      "js": ["content/whatsapp.js"],
-      "css": ["content/whatsapp.css"],
-      "run_at": "document_idle"
-    }
-  ],
   "options_page": "options/options.html"
 }

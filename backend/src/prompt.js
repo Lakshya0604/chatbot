@@ -55,7 +55,7 @@ export function buildSystemPrompt(character = {}) {
   return lines.join('\n');
 }
 
-// WhatsApp messages ko OpenAI-style chat messages mein convert karta hai.
+// Chat messages ko OpenAI-style chat messages mein convert karta hai.
 // Extension se aata hai: [{ role: 'user' | 'assistant', content: '...' }]
 // 'user' = saamne wala (incoming), 'assistant' = character ki taraf se pichle jawab.
 export function buildMessages(character, chatMessages, limit = 20) {

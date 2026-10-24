@@ -1,115 +1,79 @@
-# Character Chatbot (WhatsApp Web, suggestion mode)
+# Character Chatbot - local AI reply engine
 
-A Chrome extension + small Node backend that drafts AI replies **as suggestions** inside
-WhatsApp Web, in a character you configure: naam, role, tone, humour, reply length,
-topics, boundaries, aur tumhare apne style examples.
+> **Status (24 Oct 2026): PLATFORM ADAPTERS ABHI AVAILABLE NAHI HAIN.**
+> Ye repo abhi ek **common engine** hai: character settings, local secure backend,
+> BYOK AI connection, aur safety rails. Kisi bhi chatting website (Telegram,
+> WhatsApp, etc.) par chalne wala adapter is commit mein **shamil nahi** hai -
+> neeche "Platform status" padho. Ise abhi "working extension" mat samjho.
 
-**Auto-send is OFF.** The AI writes into the typing box as a suggestion. You read it,
-edit it if you want, and press send yourself. No message ever goes out on its own.
+Personal chatting apps mein ek AI character jo tumhari chosen chats mein
+replies draft karega: naam, role, tone, humour, reply length, topics,
+boundaries, style examples - sab tum configure karte ho. Language/script aur
+mood match karta hai, sarcasm/ambiguity par guess ki jagah clarify karta hai,
+aur "ruk jao" sunte hi rukta hai. Koi perfect-human claim nahi.
 
-## How it works
-
-1. The extension's content script watches the open WhatsApp Web chat (MutationObserver).
-2. When the other person sends messages, it waits for a short silence window and batches
-   back-to-back messages into one input.
-3. It collects the last 20 messages (with who-sent-what) and sends them to the backend.
-4. The backend builds a system prompt from your character settings and calls an
-   OpenAI-compatible AI API.
-5. The reply comes back and is inserted into the typing box as a suggestion. Send stays
-   with you.
-
-Language and mood matching are part of the character prompt: the reply follows the other
-person's language and script (Hindi / Roman Hinglish / English), matches jokes with
-playful replies, and de-escalates when the other person is uncomfortable or says stop.
-Sarcasm and double meanings can still fool the AI; when unsure it is instructed to reply
-neutrally or ask a short clarifying question.
-
-## Project layout
+## Architecture (jo bana hai)
 
 ```
-extension/            Chrome extension (Manifest V3, no build step)
-  manifest.json       Extension registration: permissions, content script, options page
-  background.js       Service worker: bridge between content script and backend
-  content/whatsapp.js Watches chats, batches messages, inserts suggestions
-  content/whatsapp.css
-  options/            Character settings page (saved in chrome.storage.sync)
-backend/              Node + Express server
-  src/prompt.js       Builds the system prompt from character settings
-  src/provider.js     OpenAI-compatible API call (+ mock mode for testing)
-  src/server.js       POST /reply endpoint
-  test/               Unit tests (node:test, no extra deps)
+chat website  <--(platform adapter - NOT IMPLEMENTED)-->  extension
+                                                             |
+                                                background.js (bridge, token yahin rehta hai)
+                                                             |
+                                                   backend (Express, 127.0.0.1 only)
+                                                  prompt.js -> provider.js -> tumhara AI API (BYOK)
 ```
 
-## Setup
+- `extension/manifest.json` - MV3 registration (koi content script abhi registered nahi)
+- `extension/background.js` - content script aur backend ka bridge; authToken SIRF yahan; 45s timeout
+- `extension/options/` - character + backend settings page (chrome.storage.sync)
+- `backend/src/server.js` - POST /reply; origin guard (server-side 403), token auth (401), rate limit (429), loop guard
+- `backend/src/prompt.js` - character se system prompt (boundaries, language-mirror, consent-stop, injection guard)
+- `backend/src/provider.js` - OpenAI-compatible call + 30s timeout + test mock
 
-### 1. Backend
+## Platform status (honest)
+
+| Platform | Status | Kyun |
+|---|---|---|
+| Telegram Web | **Blocked / not implemented** | Telegram ki Content Licensing & AI Scraping Terms (API ToS 1.5, core.telegram.org/api/terms) AI ke "deployment" mein platform data ka use prohibit karti hain - personal AI replies iske andar aate hain ya nahi, text se clear nahi. Live selector verification bhi pending (login ke bina possible nahi). |
+| WhatsApp | **Removed** | Personal-account auto-messaging WhatsApp ToS ke against hai, account-ban risk (whatsapp.com/legal/messaging-guidelines). User ke request par adapter hata diya; history mein hai (commit 678076e tak). |
+| Instagram / Facebook / Threads | **Not planned for personal use** | Meta ToS automated access/collection bina permission ke prohibit karta hai; official messaging APIs sirf Business accounts ke liye hain. |
+
+## Chalane ka tareeqa (common engine)
 
 ```bash
 cd backend
 npm install
-cp .env.example .env   # phir .env mein apni AI_API_KEY dalo
-npm start              # http://localhost:8787
+cp .env.example .env
+# .env mein:
+#   1) AUTH_TOKEN banao:  node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+#      (yehi token extension Options > Auth token mein bhi paste karna hai)
+#   2) AI_MOCK=true rakho (bina key ke test) ya apni AI key daalo (BYOK)
+npm test    # 8 unit tests
+npm start   # http://127.0.0.1:8787 (sirf tumhara laptop)
 ```
 
-Test without any API key: keep `AI_MOCK=true` in `.env`; the backend returns a fake
-echo reply so you can verify the whole flow.
+Extension load karna (abhi sirf options page kaam karega):
+`chrome://extensions` → Developer mode on → Load unpacked → `extension/` folder.
+Options mein character bharo, backend URL `http://127.0.0.1:8787`, wahi Auth token.
 
-Run unit tests: `npm test`
+## Security & privacy (jo engine mein pehle se hai)
 
-### 2. Extension
+- Backend sirf `127.0.0.1` par sunta hai (LAN se unreachable).
+- `/reply` par shared-secret token (401), non-extension Origin par server-side 403,
+  30 req/min rate limit (429), 30s provider timeout (504).
+- authToken kabhi page/content script ko nahi milta - sirf background worker padhta hai.
+- Koi message store nahi hota; chat text sirf tumhare chosen AI provider ko jaata hai.
+- Pehli baar kisi chat ko enable karne par explicit consent dialog (chat data device
+  se bahar jaata hai) - ye adapter ke saath wapas aayega.
+- `.env` gitignored hai; API keys kabhi code/chat mein mat likho.
 
-1. Open `chrome://extensions` in Chrome.
-2. Enable **Developer mode** (top right).
-3. **Load unpacked** and select the `extension/` folder.
-4. Open the extension's **Options** page and fill in the character settings.
-5. Open `web.whatsapp.com`, open a chat, and click the **AI off** button in the chat
-   header to turn it on for that chat only.
+## Verified kya hai (aur kya nahi)
 
-## Provider and cost
-
-The backend talks to any OpenAI-compatible chat completions API (set `AI_BASE_URL`,
-`AI_MODEL`, `AI_API_KEY` in `.env`). The default values point at Groq as an example.
-**The provider choice, free tier and cost are not final yet** - verify current pricing
-and limits before relying on them. The extension never charges anything by itself.
-
-## Security and privacy
-
-- The backend binds to **127.0.0.1 only** - your own laptop. It is not reachable from
-  your Wi-Fi network or the internet.
-- Set `AUTH_TOKEN` in `.env` and the same value in the extension Options page. The
-  backend then rejects every request without that token, so no random website you visit
-  can call your local backend or spend your AI credit. CORS also only allows
-  chrome-extension:// origins.
-- **Chat data consent:** the first time you turn AI on for a chat, the extension asks
-  for an explicit OK. Only that chat's messages, and only while AI is on, go to the
-  backend and the AI provider.
-- Character settings and style examples live in Chrome sync storage under your own
-  Google account. Style examples are prompts, so treat them as private text.
-- Prompt-injection guard: the system prompt tells the AI that chat messages are data,
-  never instructions - a message saying "ignore your rules" is answered in character,
-  not obeyed.
-
-## Honest limits
-
-- Works on **WhatsApp Web only**. Telegram Web or any other site needs its own adapter;
-  nothing else is tested or claimed.
-- WhatsApp Web can change its page structure (DOM) any time; the selectors in
-  `content/whatsapp.js` may then need an update.
-- Your laptop must be on, Chrome open, and the backend running.
-- This is not an official WhatsApp/Meta feature. Heavy automation can risk account
-  restrictions; suggestion mode keeps a human on every send.
-- Character is fictional. Do not configure it to impersonate a real person.
-- Only the prompt pipeline and server endpoints are unit/integration tested in mock
-  mode (7+ tests passing). The WhatsApp Web selectors in `content/whatsapp.js` are
-  written against WhatsApp Web's known DOM structure but are **not yet verified in a
-  live browser session** - first real run may need selector tweaks. No real messages
-  were sent or used in testing.
-
-## Safety defaults
-
-- Auto-send OFF (no code path sends a message).
-- Per-chat on/off toggle.
-- Loop prevention: the extension only reacts to incoming messages and the backend
-  rejects requests whose last message is not incoming.
-- Your typed text is never overwritten: if the typing box already has text, the
-  suggestion shows in a banner instead.
+- Backend: 8/8 unit tests; curl se verify: 401 (no/wrong token), 403 (non-extension
+  origin, server-side reject), 429 (31st request), health, mock end-to-end.
+- Extension security design (race-safe cross-chat delivery, fail-closed chat
+  identity, token isolation) - abhi hataye gaye WhatsApp adapter ke jsdom fixture
+  tests se 6/6 pass tha (git history, commit 678076e). Naye adapter par ye tests
+  port honge.
+- **NOT verified:** kisi bhi platform par live behavior. Koi real chat/message
+  kabhi test ke liye use nahi hua.
