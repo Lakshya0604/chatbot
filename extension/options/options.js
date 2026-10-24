@@ -15,7 +15,7 @@ function loadSettings() {
       const el = document.getElementById(field);
       if (!el) return;
       if (field === 'backendUrl') {
-        el.value = result.backendUrl || 'http://localhost:8787';
+        el.value = result.backendUrl || 'http://127.0.0.1:8787';
       } else if (field === 'authToken') {
         el.value = result.authToken || '';
       } else {
@@ -38,7 +38,7 @@ function saveSettings() {
   CHECKBOXES.forEach((field) => {
     character[field] = document.getElementById(field).checked;
   });
-  const backendUrl = document.getElementById('backendUrl').value.trim() || 'http://localhost:8787';
+  const backendUrl = document.getElementById('backendUrl').value.trim() || 'http://127.0.0.1:8787';
   const authToken = document.getElementById('authToken').value.trim();
 
   chrome.storage.sync.set({ character, backendUrl, authToken }, () => {

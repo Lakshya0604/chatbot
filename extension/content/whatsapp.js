@@ -10,8 +10,11 @@
 (function () {
   'use strict';
 
+  // Test fixture ke liye overrides (real use mein window.__CC_TEST__ exist nahi karta).
+  const TEST = (typeof window !== 'undefined' && window.__CC_TEST__) || {};
+
   // ---------- tunable constants ----------
-  const BATCH_DELAY_MS = 2500;      // itni der tak naya message na aaye to batch complete
+  const BATCH_DELAY_MS = TEST.BATCH_DELAY_MS || 2500; // itni der tak naya message na aaye to batch complete
   const CONTEXT_MESSAGE_LIMIT = 20; // backend ko bheje jaane wale max messages
   const TOGGLE_ID = 'cc-toggle-btn';
   const BANNER_ID = 'cc-banner';
@@ -20,9 +23,11 @@
   let batchTimer = null;     // batching ka pending timer
   let busy = false;          // ek reply generate ho rahi hai to nayi request mat bhejo
   let lastSeenIncoming = ''; // duplicate trigger rokne ke liye last incoming text
+  const pendingSuggestions = {}; // chatKey -> suggestion (chat switch ke baad wapas aane par)
 
   // ---------- storage helpers ----------
   // Per-chat on/off state chrome.storage.local mein, character settings sync mein.
+  // NOTE: authToken yahan kabhi nahi padha jaata - woh sirf background.js ke paas rehta hai.
   function storageGet(area, key) {
     return new Promise((resolve) => {
       chrome.storage[area].get(key, (result) => resolve(result[key]));
@@ -32,10 +37,24 @@
     return new Promise((resolve) => chrome.storage[area].set(obj, resolve));
   }
 
-  // Abhi khuli chat ka naam header se nikaalte hain; yahi per-chat key hai.
+  // ---------- chat identity (FAIL CLOSED) ----------
+  // Per-chat key SIRF message bubble ke data-id se banti hai.
+  // WhatsApp ke data-id ka format: "true_<chat-id>_<message-id>" - isme chat ka
+  // asli id hota hai (phone number / group id), jo display name se zyada stable hai:
+  // do contacts ka same naam ho to bhi keys alag rehti hain.
+  // Display name par fallback JAANBOOJH kar nahi hai - same-name do alag chats mein
+  // galat chat ki settings/reply lag sakti thi. data-id na mile to key null ->
+  // is chat mein feature band rehta hai (fail closed, kuch bheja nahi jaata).
+  // Natija: bilkul nayi (blank) chat mein tab tak enable nahi hoga jab tak
+  // koi message na ho. Ye selectors WhatsApp update par badal sakte hain -
+  // tab bhi fail closed: toggle hi nahi dikhega, galat chat mein kuch nahi jayega.
   function getChatKey() {
-    const header = document.querySelector('#main header span[title]');
-    return header ? header.getAttribute('title') : null;
+    const rows = document.querySelectorAll('#main div.message-in[data-id], #main div.message-out[data-id]');
+    const last = rows[rows.length - 1];
+    if (!last) return null;
+    const parts = String(last.getAttribute('data-id')).split('_');
+    if (parts.length >= 3 && parts[1]) return 'id:' + parts[1];
+    return null;
   }
 
   async function isChatEnabled(chatKey) {
@@ -67,8 +86,18 @@
       if (header) header.appendChild(btn);
     }
     const enabled = await isChatEnabled(chatKey);
-    btn.textContent = enabled ? 'AI on' : 'AI off';
-    btn.dataset.enabled = String(enabled);
+    // Sirf tab DOM badlo jab state sach mein badli ho - warna apni hi mutation
+    // observer ko dobara trigger karti (infinite loop).
+    const label = enabled ? 'AI on' : 'AI off';
+    if (btn.textContent !== label) btn.textContent = label;
+    if (btn.dataset.enabled !== String(enabled)) btn.dataset.enabled = String(enabled);
+
+    // Chat switch ke dauraan aayi pending suggestion ab deliver karo (sahi chat mein).
+    if (pendingSuggestions[chatKey]) {
+      const text = pendingSuggestions[chatKey];
+      delete pendingSuggestions[chatKey];
+      insertSuggestion(text, chatKey);
+    }
   }
 
   async function onToggleClick() {
@@ -147,7 +176,7 @@
   // ---------- reply generation ----------
   async function generateSuggestion() {
     if (busy) return;
-    const chatKey = getChatKey();
+    const chatKey = getChatKey(); // request jis chat se shuru hui, uski key pakad lo
     if (!chatKey || !(await isChatEnabled(chatKey))) return;
 
     const messages = readMessages();
@@ -155,25 +184,35 @@
 
     const character = (await storageGet('sync', 'character')) || {};
     const backendUrl = (await storageGet('sync', 'backendUrl')) || undefined;
-    const authToken = (await storageGet('sync', 'authToken')) || undefined;
 
     busy = true;
     showBanner('AI soch raha hai...', null);
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'GENERATE_REPLY',
-        payload: { character, messages, backendUrl, authToken },
+        payload: { character, messages, backendUrl },
       });
       if (response && response.ok && response.data && response.data.reply) {
-        insertSuggestion(response.data.reply);
+        deliverSuggestion(chatKey, response.data.reply);
       } else {
         const reason = (response && (response.error || (response.data && response.data.error))) || 'unknown error';
-        showBanner(`Reply nahi ban payi: ${reason}`, null);
+        if (getChatKey() === chatKey) showBanner(`Reply nahi ban payi: ${reason}`, null);
       }
     } catch (err) {
-      showBanner(`Backend se baat nahi ho payi: ${String(err)}`, null);
+      if (getChatKey() === chatKey) showBanner(`Backend se baat nahi ho payi: ${String(err)}`, null);
     } finally {
       busy = false;
+    }
+  }
+
+  // RACE SAFETY: reply sirf wahi chat paaye jahan se request gayi thi.
+  // Agar tab tak tum doosri chat mein ja chuke ho, suggestion memory mein rakhi
+  // jaati hai aur wapas aane par dikhti hai - galat chat mein KABHI nahi jayegi.
+  function deliverSuggestion(chatKey, text) {
+    if (getChatKey() === chatKey) {
+      insertSuggestion(text, chatKey);
+    } else {
+      pendingSuggestions[chatKey] = text;
     }
   }
 
@@ -183,7 +222,12 @@
     return document.querySelector('#main footer div[contenteditable="true"][role="textbox"]');
   }
 
-  function insertSuggestion(text) {
+  function insertSuggestion(text, chatKey) {
+    // Double-check: insert se pehle bhi wahi chat khuli honi chahiye.
+    if (chatKey && getChatKey() !== chatKey) {
+      pendingSuggestions[chatKey] = text;
+      return;
+    }
     const composer = getComposer();
     if (composer && composer.innerText.trim() === '') {
       composer.focus();
