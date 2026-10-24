@@ -29,6 +29,8 @@ const CONFIG = {
   footerSelector: '.composer',
   rootSelector: '#app',
   consentMessage: 'Is chat ke messages AI provider ko bheje jaayenge. OK?',
+  consentRequestText: 'Heads up: is chat mein AI-drafted replies aa sakti hain. Okay? (stop likhne par band)',
+  aiMarker: ' (AI)',
 };
 
 function chatHtml(chatId, messages) {
@@ -83,9 +85,15 @@ async function enableChat(window) {
   await sleep(60);
   const btn = window.document.getElementById('cc-toggle-btn');
   assert.ok(btn, 'toggle dikhna chahiye (stable id wali chat mein)');
-  btn.click();
+  btn.click(); // step 1: owner consent + recipient consent-request draft
   await sleep(60);
-  assert.equal(btn.dataset.enabled, 'true');
+  assert.equal(btn.dataset.enabled, 'false', 'pehle click ke baad bhi AI dormant rahe (consent pending)');
+  btn.click(); // step 2: owner confirms recipient ne haan kaha
+  await sleep(60);
+  assert.equal(btn.dataset.enabled, 'true', 'recipient consent confirm hone par AI active');
+  // Owner ne consent request send kar di (manual) - composer khaali.
+  const composer = window.document.querySelector('.composer .box');
+  composer.textContent = '';
 }
 
 function appendIncoming(window, chatId, text, i = 99) {
@@ -115,8 +123,8 @@ test('happy path: naye incoming par suggestion composer mein (send NAHI)', async
   assert.equal(calls.length, 1);
   assert.equal(calls[0].payload.messages.at(-1).role, 'user');
   assert.equal(calls[0].payload.authToken, undefined, 'engine token kabhi na bheje');
-  assert.equal(composerOf(window).textContent, reply);
-  assert.ok(bannerText(window).includes('khud send dabao'));
+  assert.equal(composerOf(window).textContent, reply + ' (AI)', 'marker ke saath suggestion');
+  assert.ok(bannerText(window).includes('KHUD send dabao'), bannerText(window));
 });
 
 test('RACE: chat switch ke dauraan reply doosri chat mein NAHI jaati', async (t) => {
@@ -211,6 +219,61 @@ test('FAIL CLOSED: stable id ke bina toggle hi nahi banta, koi request nahi', as
 
   const msgs = window.document.querySelector('.msgs');
   msgs.innerHTML = '<div class="msg in"><span class="txt">hi</span></div>';
+  await sleep(250);
+  assert.equal(calls.length, 0);
+});
+
+test('CONSENT GATE: pending state mein incoming par koi AI request nahi jaati', async (t) => {
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'x' } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
+  }, t);
+  await sleep(60);
+  const btn = window.document.getElementById('cc-toggle-btn');
+  btn.click(); // sirf step 1 - recipient consent confirm NAHI hui
+  await sleep(60);
+  assert.ok(composerOf(window).textContent.includes('Heads up'), 'consent request draft composer mein');
+
+  appendIncoming(window, 'aaa', 'hello');
+  await sleep(250);
+  assert.equal(calls.length, 0, 'recipient consent ke bina zero AI requests');
+});
+
+test('STOP GATE: saamne wala stop kahe to chat band, message AI ko nahi jaata', async (t) => {
+  const { window, calls, store } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'x' } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
+  }, t);
+  await enableChat(window);
+
+  appendIncoming(window, 'aaa', 'please stop');
+  await sleep(250);
+  assert.equal(calls.length, 0, 'stop message AI provider ko nahi gaya');
+  const btn = window.document.getElementById('cc-toggle-btn');
+  assert.equal(btn.textContent, 'Stopped', 'chat stopped state mein');
+  assert.ok(bannerText(window).includes('band kar diya'), 'owner ko stop notification');
+
+  // Stop ke baad normal message bhi process nahi hota.
+  appendIncoming(window, 'aaa', 'hello again', 100);
+  await sleep(250);
+  assert.equal(calls.length, 0, 'stopped chat mein kuch process nahi hota');
+
+  // Consent log mein dono events (active + stopped) record hue.
+  const log = store.local.consentLog || [];
+  assert.ok(log.some((e) => e.state === 'active'), 'activation logged');
+  assert.ok(log.some((e) => e.state === 'stopped'), 'stop logged');
+});
+
+test('owner off kare to turant band aur naye incoming par kuch nahi', async (t) => {
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'x' } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
+  }, t);
+  await enableChat(window);
+  const btn = window.document.getElementById('cc-toggle-btn');
+  btn.click(); // active -> off
+  await sleep(60);
+  appendIncoming(window, 'aaa', 'hello');
   await sleep(250);
   assert.equal(calls.length, 0);
 });
