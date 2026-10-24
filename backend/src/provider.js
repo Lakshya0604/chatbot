@@ -17,7 +17,11 @@ export async function callChatCompletion({ baseUrl, apiKey, model, messages, tim
         model,
         messages,
         temperature: 0.8,
-        max_tokens: 300,
+        // Reasoning models (jaise gpt-oss) reasoning tokens bhi isi budget se kaat-te
+        // hain - 300 par reply truncate/empty ho jaata hai (finish_reason=length).
+        max_completion_tokens: 1024,
+        // Optional: kuch providers (Groq gpt-oss) reasoning_effort lete hain.
+        ...(process.env.AI_REASONING_EFFORT ? { reasoning_effort: process.env.AI_REASONING_EFFORT } : {}),
       }),
       signal: controller.signal,
     });
@@ -29,10 +33,15 @@ export async function callChatCompletion({ baseUrl, apiKey, model, messages, tim
     }
 
     const data = await res.json();
-    const reply = data.choices && data.choices[0] && data.choices[0].message
-      ? data.choices[0].message.content
-      : '';
-    return String(reply).trim();
+    const choice = data.choices && data.choices[0];
+    const reply = choice && choice.message ? choice.message.content : '';
+    const text = String(reply || '').trim();
+    // Empty reply + finish_reason=length = token budget reasoning mein khatam.
+    // Isko silent empty suggestion banne se rokna hai - saaf error do.
+    if (!text && choice && choice.finish_reason === 'length') {
+      throw new Error('AI reply token budget mein truncate ho gaya (empty) - max_completion_tokens badhao ya reasoning_effort kam karo.');
+    }
+    return text;
   } catch (err) {
     if (err && err.name === 'AbortError') {
       throw new Error(`AI provider timeout (${Math.round(timeoutMs / 1000)}s mein jawab nahi aaya)`);

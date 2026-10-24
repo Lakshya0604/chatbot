@@ -45,7 +45,7 @@ app.use('/reply', (req, res, next) => {
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_BASE_URL = process.env.AI_BASE_URL || 'https://api.groq.com/openai/v1';
-const AI_MODEL = process.env.AI_MODEL || 'llama-3.3-70b-versatile';
+const AI_MODEL = process.env.AI_MODEL || 'openai/gpt-oss-120b';
 const AI_API_KEY = process.env.AI_API_KEY || '';
 const AI_MOCK = process.env.AI_MOCK === 'true';
 const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
