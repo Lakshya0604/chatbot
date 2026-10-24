@@ -17,9 +17,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const backendUrl = payload.backendUrl || DEFAULT_BACKEND_URL;
 
   // Token khud storage se padho - content script se aaye payload par bharosa nahi.
-  chrome.storage.sync.get('authToken', (result) => {
+  // authToken secret hai: storage.local (isi device). Purane versions sync mein
+  // rakhte the - sync copy mile to migrate karke delete karo.
+  chrome.storage.local.get('authToken', (localRes) => {
+    chrome.storage.sync.get('authToken', (syncRes) => {
+      let token = localRes.authToken;
+      if (!token && syncRes.authToken) {
+        token = syncRes.authToken;
+        chrome.storage.local.set({ authToken: token });
+      }
+      if (syncRes.authToken) chrome.storage.sync.remove('authToken');
     const headers = { 'Content-Type': 'application/json' };
-    if (result.authToken) headers['X-Chatbot-Token'] = result.authToken;
+    if (token) headers['X-Chatbot-Token'] = token;
 
     // Timeout: 45s mein jawab na aaye to request abort, error wapas content script ko.
     const controller = new AbortController();
@@ -46,6 +55,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           : String(err);
         sendResponse({ ok: false, error: msg });
       });
+    });
   });
 
   return true; // sendResponse async chalega
