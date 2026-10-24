@@ -52,10 +52,16 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS) || 30000;
 
 // Per-contact memory (MongoDB) - OPTIONAL. MONGODB_URI set ho tabhi chalti hai.
-// Har message ownerId + chatId ke saath store hota hai; identity fail-closed hai
-// (dono na mile to store nahi hota, reply phir bhi normal chalti hai).
+// IDENTITY BINDING: ownerId client se NAHI aata (client claim par bharosa nahi -
+// warna koi bhi caller doosre owner ka data likh/padh sakta tha). ownerId sirf
+// AUTH_TOKEN se derive hota hai: OWNER_TOKENS JSON mein token -> ownerId mapping.
+// chatId client se aata hai, lekin woh authenticated owner ke andar scoped hai.
 let memory = null;
-if (process.env.MONGODB_URI) {
+const OWNER_TOKENS = (() => {
+  try { return process.env.OWNER_TOKENS ? JSON.parse(process.env.OWNER_TOKENS) : null; }
+  catch { console.warn('memory: OWNER_TOKENS JSON invalid, memory off'); return null; }
+})();
+if (process.env.MONGODB_URI && OWNER_TOKENS && Object.keys(OWNER_TOKENS).length > 0) {
   try {
     const conn = await connectMongoMemory(process.env.MONGODB_URI);
     memory = conn.store;
@@ -64,6 +70,14 @@ if (process.env.MONGODB_URI) {
     // Memory fail ho to reply feature nahi rukna chahiye - sirf warn karo.
     console.warn('memory: MongoDB connect nahi hua, memory off:', String((err && err.message) || err));
   }
+} else if (process.env.MONGODB_URI) {
+  console.warn('memory: MONGODB_URI hai par OWNER_TOKENS nahi - memory off (owner binding ke bina storage nahi).');
+}
+
+// Token se owner nikaalo. Match nahi mila to null (memory store nahi hogi).
+function ownerFromToken(req) {
+  if (!OWNER_TOKENS) return null;
+  return OWNER_TOKENS[req.get('X-Chatbot-Token')] || null;
 }
 
 // Health check - extension/terminal se backend zinda hai ya nahi dekhne ke liye.
@@ -110,7 +124,8 @@ app.post('/reply', async (req, res) => {
     // Memory mein store karo (best-effort): sirf jab ownerId + chatId dono hon.
     // Reply ko memory failure ki wajah se kabhi block nahi karte.
     if (memory) {
-      const { ownerId, chatId } = req.body || {};
+      const ownerId = ownerFromToken(req); // client ka ownerId claim kabhi use nahi hota
+      const { chatId } = req.body || {};
       if (ownerId && chatId) {
         const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
         const writes = [];
