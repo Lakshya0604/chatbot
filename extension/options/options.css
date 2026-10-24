@@ -7,3 +7,7 @@ label.check { flex-direction: row; align-items: center; gap: 8px; }
 input[type="text"], select, textarea { background: #202c33; color: #e9edef; border: 1px solid #2a3942; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
 button { background: #00a884; color: #111b21; border: none; border-radius: 8px; padding: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
 #status { color: #00a884; font-size: 13px; }
+
+.preview-out { margin: 8px 0; padding: 10px; border: 1px solid #444; border-radius: 6px; min-height: 20px; white-space: pre-wrap; }
+button.danger { background: #a33; color: #fff; }
+h2 { margin-top: 28px; font-size: 1.1em; }

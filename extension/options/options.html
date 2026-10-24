@@ -74,6 +74,20 @@
 
     <p class="hint">Privacy: ye settings Chrome sync mein tumhare apne Google account ke through sync hoti hain. Chat messages sirf tab backend/AI ko jaate hain jab tum us chat mein AI on karte ho.</p>
 
+
+    <h2>Preview (dummy test)</h2>
+    <p class="hint">Ek sample incoming message likho aur dekho current settings ke saath AI kya reply karta. Ye ek REAL API call hai dummy message par - kisi asli chat par kuch nahi jaata.</p>
+    <label>Sample incoming message (jaise saamne wala likhe)
+      <textarea id="previewInput" rows="2" placeholder="e.g. yaar kal test hai, notes bhej de"></textarea>
+    </label>
+    <button id="preview" type="button">Preview reply</button>
+    <div id="previewOut" class="preview-out"></div>
+
+    <h2>Emergency stop</h2>
+    <p class="hint">Stop all = sab chats mein AI turant band, queued/in-flight reply bhi cancel. Resume sirf tum kisi chat mein dobara on karoge tab.</p>
+    <button id="stopAll" type="button" class="danger">Stop all chats</button>
+    <span id="stopStatus"></span>
+
     <button id="save" type="button">Save</button>
     <span id="status"></span>
   </main>
