@@ -1,0 +1,9 @@
+body { font-family: system-ui, sans-serif; background: #111b21; color: #e9edef; margin: 0; }
+main { max-width: 560px; margin: 24px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 14px; }
+h1 { font-size: 20px; }
+.hint { color: #8696a0; font-size: 13px; }
+label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #aebac1; }
+label.check { flex-direction: row; align-items: center; gap: 8px; }
+input[type="text"], select, textarea { background: #202c33; color: #e9edef; border: 1px solid #2a3942; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+button { background: #00a884; color: #111b21; border: none; border-radius: 8px; padding: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+#status { color: #00a884; font-size: 13px; }

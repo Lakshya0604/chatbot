@@ -1,0 +1,50 @@
+/* whatsapp.css - toggle button aur suggestion banner ke styles */
+
+#cc-toggle-btn {
+  margin-left: 8px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  background: #2a3942;
+  color: #8696a0;
+  align-self: center;
+}
+
+#cc-toggle-btn[data-enabled="true"] {
+  background: #00a884;
+  color: #111b21;
+  font-weight: 600;
+}
+
+#cc-banner {
+  margin: 4px 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #202c33;
+  border-left: 3px solid #00a884;
+  font-size: 13px;
+  color: #e9edef;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#cc-banner .cc-note {
+  color: #8696a0;
+}
+
+#cc-banner .cc-suggestion {
+  white-space: pre-wrap;
+}
+
+#cc-banner .cc-dismiss {
+  align-self: flex-end;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  background: #2a3942;
+  color: #e9edef;
+}

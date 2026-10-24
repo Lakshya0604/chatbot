@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Character Chatbot - Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main>
+    <h1>Character settings</h1>
+    <p class="hint">Ye settings har AI reply ko guide karti hain. Save karke WhatsApp Web kholo, chat kholo, "AI off" button par click karke on karo.</p>
+
+    <label>Character ka naam
+      <input id="name" type="text" placeholder="e.g. Meera" />
+    </label>
+
+    <label>Gender / persona
+      <input id="gender" type="text" placeholder="e.g. female, male, neutral" />
+    </label>
+
+    <label>Role
+      <input id="role" type="text" placeholder="e.g. friendly assistant, college friend" />
+    </label>
+
+    <label>Tone
+      <input id="tone" type="text" placeholder="e.g. warm, funny, calm, professional" />
+    </label>
+
+    <label>Humour level
+      <select id="humour">
+        <option value="low">Low</option>
+        <option value="medium" selected>Medium</option>
+        <option value="high">High</option>
+      </select>
+    </label>
+
+    <label>Reply length
+      <select id="replyLength">
+        <option value="short" selected>Short (1-2 lines)</option>
+        <option value="medium">Medium (ek chhota paragraph)</option>
+        <option value="detailed">Detailed</option>
+      </select>
+    </label>
+
+    <label>Topics jin par baat kare
+      <textarea id="topics" rows="2" placeholder="e.g. movies, coding, daily life"></textarea>
+    </label>
+
+    <label>Boundaries (kya nahi karna)
+      <textarea id="boundaries" rows="3" placeholder="e.g. personal contact details mat maango, politics par baat mat karo"></textarea>
+    </label>
+
+    <label>Style examples (tumhare likhe sample replies, optional)
+      <textarea id="styleExamples" rows="3" placeholder="e.g. haha sahi hai yaar&#10;acha sun, kal milte hain"></textarea>
+    </label>
+
+    <label class="check">
+      <input id="playful" type="checkbox" checked />
+      Jokes ka playful jawab de (mood matching)
+    </label>
+
+    <label class="check">
+      <input id="flirting" type="checkbox" />
+      Halki flirting allowed (boundaries ke andar)
+    </label>
+
+    <label>Backend URL
+      <input id="backendUrl" type="text" placeholder="http://localhost:8787" />
+    </label>
+
+    <button id="save" type="button">Save</button>
+    <span id="status"></span>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>
