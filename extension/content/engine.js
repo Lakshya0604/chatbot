@@ -50,6 +50,10 @@
     let batchTimer = null;
     let busy = false;
     let lastSeenIncoming = '';
+    // Page load ke baad jin active chats ka "ab tak ka last incoming" snapshot
+    // ho chuka hai. Bina snapshot ke enable karte hi PURANE incoming message par
+    // reply ban jaati - activation ke baad AAYE messages par hi react karna hai.
+    const bootSynced = new Set();
     const pendingSuggestions = {};
 
     // ---------- storage ----------
@@ -119,6 +123,10 @@
       if (btn.textContent !== label) btn.textContent = label;
       const enabled = state && state.state === 'active' ? 'true' : 'false';
       if (btn.dataset.enabled !== enabled) btn.dataset.enabled = enabled;
+      if (state && state.state === 'active' && !bootSynced.has(chatKey)) {
+        bootSynced.add(chatKey);
+        snapshotIncoming();
+      }
 
       // Chat switch ke dauraan aayi pending suggestion ab deliver karo (sahi chat mein).
       if (pendingSuggestions[chatKey]) {
@@ -160,11 +168,18 @@
         );
         if (!confirmed) return;
         await setChatState(chatKey, 'active', 'owner ne recipient consent confirm ki');
+        snapshotIncoming(); // sirf activation ke BAAD aaye messages par react karo
         refreshToggle();
       }
     }
 
     // ---------- message reading ----------
+    function snapshotIncoming() {
+      const msgs = readMessages();
+      const last = msgs[msgs.length - 1];
+      lastSeenIncoming = last && last.role === 'user' ? last.content : '';
+    }
+
     function readMessages() {
       const rows = document.querySelectorAll(config.rowsSelector);
       const messages = [];

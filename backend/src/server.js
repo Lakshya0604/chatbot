@@ -7,6 +7,7 @@ import express from 'express';
 import cors from 'cors';
 import { buildMessages } from './prompt.js';
 import { callChatCompletion, mockReply } from './provider.js';
+import { connectMongoMemory } from './memory.js';
 
 const app = express();
 
@@ -50,6 +51,21 @@ const AI_MOCK = process.env.AI_MOCK === 'true';
 const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS) || 30000;
 
+// Per-contact memory (MongoDB) - OPTIONAL. MONGODB_URI set ho tabhi chalti hai.
+// Har message ownerId + chatId ke saath store hota hai; identity fail-closed hai
+// (dono na mile to store nahi hota, reply phir bhi normal chalti hai).
+let memory = null;
+if (process.env.MONGODB_URI) {
+  try {
+    const conn = await connectMongoMemory(process.env.MONGODB_URI);
+    memory = conn.store;
+    console.log('memory: MongoDB connected (per-chat isolation on)');
+  } catch (err) {
+    // Memory fail ho to reply feature nahi rukna chahiye - sirf warn karo.
+    console.warn('memory: MongoDB connect nahi hua, memory off:', String((err && err.message) || err));
+  }
+}
+
 // Health check - extension/terminal se backend zinda hai ya nahi dekhne ke liye.
 app.get('/health', (req, res) => {
   res.json({ ok: true, mock: AI_MOCK });
@@ -90,6 +106,20 @@ app.post('/reply', async (req, res) => {
     if (!reply) {
       return res.status(502).json({ error: 'AI ne khaali reply di' });
     }
+
+    // Memory mein store karo (best-effort): sirf jab ownerId + chatId dono hon.
+    // Reply ko memory failure ki wajah se kabhi block nahi karte.
+    if (memory) {
+      const { ownerId, chatId } = req.body || {};
+      if (ownerId && chatId) {
+        const lastUser = [...messages].reverse().find((m) => m && m.role === 'user');
+        const writes = [];
+        if (lastUser && lastUser.content) writes.push({ ownerId, chatId, role: 'user', text: String(lastUser.content) });
+        writes.push({ ownerId, chatId, role: 'assistant', text: String(reply) });
+        Promise.allSettled(writes.map((w) => memory.appendMessage(w))).catch(() => {});
+      }
+    }
+
     return res.json({ reply });
   } catch (err) {
     // Provider timeout ko 504, baaki provider errors ko 502 - extension banner mein reason dikhta hai.

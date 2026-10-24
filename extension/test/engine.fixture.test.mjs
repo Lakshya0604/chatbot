@@ -277,3 +277,17 @@ test('owner off kare to turant band aur naye incoming par kuch nahi', async (t) 
   await sleep(250);
   assert.equal(calls.length, 0);
 });
+
+test('ACTIVATION SNAPSHOT: enable karte hi purana incoming message trigger NAHI hota', async (t) => {
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'x' } }),
+    initialHtml: chatHtml('aaa', [{ out: false, text: 'bahut purana incoming' }]),
+  }, t);
+  await enableChat(window);
+  await sleep(250);
+  assert.equal(calls.length, 0, 'activation se pehle ka message kabhi AI ko nahi jaana chahiye');
+
+  appendIncoming(window, 'aaa', 'ab naya aaya');
+  await sleep(250);
+  assert.equal(calls.length, 1, 'activation ke baad ka naya message trigger hota hai');
+});
