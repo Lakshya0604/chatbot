@@ -4,8 +4,10 @@
 // par request mixed-content/CORS mein phas sakti hai. Extension ke service
 // worker ko host_permissions mili hain, isliye yahan se localhost call safe hai.
 //
-// SECURITY: authToken SIRF yahan rehta hai. Content script ko kabhi nahi diya
-// jaata, taaki page ke andar chalne wala koi bhi code token na dekh sake.
+// SECURITY: authToken storage.local mein rehta hai aur sirf do jagah use hota
+// hai - yahan (engine replies ke liye) aur options page ka dummy preview.
+// Content script (engine) ka code ise kabhi nahi padhta, aur website ke apne
+// scripts extension storage tak pahunch hi nahi sakte.
 
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8787';
 const REQUEST_TIMEOUT_MS = 45000; // AI reply der se aaye to hamesha ke liye hang na ho

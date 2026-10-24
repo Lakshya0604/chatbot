@@ -29,7 +29,7 @@ chat website  <--(platform adapter - NOT IMPLEMENTED)-->  extension
   consent gate, burst batching (debounce), activation snapshot (purane messages trigger
   nahi hote), race-safe delivery, STOP ALL + in-flight cancel, abhi suggestion-only
   (auto-reply request hold par - consent/adapter pending, auto-send code nahi), AI marker har suggestion par.
-- `extension/background.js` - content script aur backend ka bridge; authToken storage.local mein rehta hai aur sirf yahin use hota hai (content script ko kabhi nahi diya jaata).
+- `extension/background.js` - content script aur backend ka bridge; authToken storage.local mein rehta hai, sirf yahin aur options page ke dummy preview mein use hota hai (engine/content script ise kabhi nahi padhta; website ke scripts extension storage tak pahunch nahi sakte).
 - `extension/options/` - character settings + backend config + **live Preview** (dummy
   message par real API call) + **Stop all** button.
 - `extension/test/` - engine ke jsdom fixture tests: **16/16 pass** (generic fake DOM;
