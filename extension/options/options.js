@@ -10,7 +10,7 @@ const FIELDS = [
 const CHECKBOXES = ['playful', 'flirting'];
 
 function loadSettings() {
-  chrome.storage.sync.get(['character', 'backendUrl'], (result) => {
+  chrome.storage.sync.get(['character', 'backendUrl', 'authToken'], (result) => {
     const character = result.character || {};
     FIELDS.forEach((field) => {
       const el = document.getElementById(field);
@@ -19,9 +19,12 @@ function loadSettings() {
         el.value = result.backendUrl || 'http://127.0.0.1:8787';
       } else if (field === 'authToken') {
         el.value = result.authToken || '';
-      } else {
-        el.value = character[field] || '';
+      } else if (character[field]) {
+        el.value = character[field];
+      } else if (el.tagName !== 'SELECT') {
+        el.value = '';
       }
+      // SELECT ko blank mat karo: stored value na ho to default selected option hi rahe.
     });
     CHECKBOXES.forEach((field) => {
       const el = document.getElementById(field);
