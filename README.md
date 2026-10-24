@@ -10,7 +10,7 @@ Personal chatting apps mein ek AI character jo tumhari chosen chats mein replies
 draft karega: naam, gender, role, tone, humour, reply length, topics, boundaries,
 style examples - sab tum configure karte ho. Language/script match karta hai,
 mood ke hisaab se serious/playful hota hai, "ruk jao" sunte hi rukta hai, aur
-reply hamesha **suggestion** ke roop mein aati hai - send tum khud dabate ho.
+abhi reply **suggestion** ke roop mein aati hai - send tum khud dabate ho. Ye interim state hai: automatic reply (selected chats ke liye) original request thi, lekin consent design + platform adapter ke bina abhi hold par hai.
 Koi perfect-human claim nahi.
 
 ## Architecture (jo bana hai)
@@ -27,9 +27,9 @@ chat website  <--(platform adapter - NOT IMPLEMENTED)-->  extension
 
 - `extension/content/engine.js` - platform-agnostic engine: per-chat opt-in + recipient
   consent gate, burst batching (debounce), activation snapshot (purane messages trigger
-  nahi hote), race-safe delivery, STOP ALL + in-flight cancel, suggestion-only
-  (auto-send code nahi), AI marker har suggestion par.
-- `extension/background.js` - content script aur backend ka bridge; authToken SIRF yahan.
+  nahi hote), race-safe delivery, STOP ALL + in-flight cancel, abhi suggestion-only
+  (auto-reply request hold par - consent/adapter pending, auto-send code nahi), AI marker har suggestion par.
+- `extension/background.js` - content script aur backend ka bridge; authToken storage.local mein rehta hai aur sirf yahin use hota hai (content script ko kabhi nahi diya jaata).
 - `extension/options/` - character settings + backend config + **live Preview** (dummy
   message par real API call) + **Stop all** button.
 - `extension/test/` - engine ke jsdom fixture tests: **16/16 pass** (generic fake DOM;
@@ -111,7 +111,7 @@ dummy message par real reply dekho.
   LEKIN script-match kabhi-kabhi miss (Devanagari aa jaata hai), kuch benign
   requests par over-refusal, kabhi-kabhi gender slip. Ye known limitations hain.
 - **NOT verified:** kisi bhi platform par live behavior. Koi real chat/message
-  kabhi test ke liye use nahi hua. Koi auto-send nahi.
+  kabhi test ke liye use nahi hua. Abhi koi auto-send implemented nahi (request hold par, consent design pending).
 
 ## Security & privacy
 
