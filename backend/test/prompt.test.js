@@ -84,3 +84,16 @@ test('nage fields ke bina prompt clean rehta hai (no stray labels)', () => {
   assert.doesNotMatch(prompt, /Vocabulary/);
   assert.doesNotMatch(prompt, /default mood/i);
 });
+
+test('topics aur styleExamples prompt mein aate hain', () => {
+  const prompt = buildSystemPrompt({ name: 'Meera', topics: 'movies, chai', styleExamples: 'haha sahi hai yaar' });
+  assert.match(prompt, /Topics you like talking about: movies, chai/);
+  assert.match(prompt, /example messages in the style you must match/);
+  assert.match(prompt, /haha sahi hai yaar/);
+});
+
+test('topics aur styleExamples ke bina unke labels nahi aate', () => {
+  const prompt = buildSystemPrompt({ name: 'Meera' });
+  assert.doesNotMatch(prompt, /Topics you like/);
+  assert.doesNotMatch(prompt, /example messages in the style/);
+});
