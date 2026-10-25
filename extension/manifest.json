@@ -1,12 +1,29 @@
 {
   "manifest_version": 3,
   "name": "Character Chatbot - local AI reply assistant",
-  "version": "0.3.0",
-  "description": "Local character-based AI reply engine. Platform adapters are not yet available - see README status.",
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1:8787/*", "http://localhost:8787/*"],
+  "version": "0.4.0",
+  "description": "Local character-based AI reply engine: consent-gated suggestions aur auto-replies. Telegram Web adapter EXPERIMENTAL hai (dummy mock par tested, live Telegram par unverified). Sirf 127.0.0.1 backend se baat karta hai.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
-  "options_page": "options/options.html"
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.telegram.org/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/telegram.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

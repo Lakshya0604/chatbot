@@ -7,7 +7,10 @@
 //   - Per-chat opt-in + CONSENT GATE: AI tabhi process karta hai jab owner ne
 //     confirm kiya ho ki saamne wala explicit agree karta hai (1:1 only design).
 //   - Consent request ka draft composer mein deta hai - bhejna OWNER ka manual
-//     kaam hai, engine kabhi kuch apne aap send nahi karta.
+//     kaam hai; consent-request engine kabhi apne aap nahi bhejta.
+//   - AUTO mode (per-chat, owner ka explicit choice, sirf consent-active chat):
+//     naya incoming aane par AI reply apne aap send ho sakti hai. User apna text
+//     type kar raha ho, state/identity doubt ho, ya stop aaya ho to send NAHI.
 //   - STOP GATE: saamne wala kabhi bhi stop kahe to chat turant band, us message
 //     ko AI ko bheja bhi nahi jaata. Re-enable = fresh consent.
 //   - Race safety: reply SIRF usi chat mein dikhegi jahan se request gayi thi.
@@ -38,6 +41,8 @@
     //   consentRequestText     -> saamne wale ko bhejne ka consent request draft (owner khud send karega)
     //   aiMarker               -> har AI suggestion ke end mein marker (default '')
     //   stopPattern            -> RegExp (default DEFAULT_STOP)
+    //   sendSelector           -> AUTO mode ka send button (optional; na mile to
+    //                             auto-reply draft ban jati hai, send nahi hoti)
     // }
     const TEST = (typeof global !== 'undefined' && global.__CC_TEST__) || {};
     const BATCH_DELAY_MS = TEST.BATCH_DELAY_MS || 2500;
@@ -55,6 +60,8 @@
     let epoch = 0;
     const GLOBAL_STOP_KEY = 'globalStop';
     const STOPALL_ID = 'cc-stopall-btn';
+    const AUTO_BTN_ID = 'cc-auto-btn';
+    const MODE_KEY = 'chatMode';
     // Page load ke baad jin active chats ka "ab tak ka last incoming" snapshot
     // ho chuka hai. Bina snapshot ke enable karte hi PURANE incoming message par
     // reply ban jaati - activation ke baad AAYE messages par hi react karna hai.
@@ -96,6 +103,19 @@
       const log = (await storageGet('local', 'consentLog')) || [];
       log.push({ chatKey, state, ts: new Date().toISOString(), note: note || '' });
       await storageSet('local', { consentLog: log.slice(-200) });
+    }
+
+    // Per-chat reply mode: 'suggest' (default - draft, owner khud send kare) ya
+    // 'auto' (consent-active chat mein AI reply apne aap send). Sirf device par.
+    async function getChatMode(chatKey) {
+      if (!chatKey) return 'suggest';
+      const map = (await storageGet('local', MODE_KEY)) || {};
+      return map[chatKey] === 'auto' ? 'auto' : 'suggest';
+    }
+    async function setChatMode(chatKey, mode) {
+      const map = (await storageGet('local', MODE_KEY)) || {};
+      if (mode === 'auto') map[chatKey] = 'auto'; else delete map[chatKey];
+      await storageSet('local', { [MODE_KEY]: map });
     }
 
     // Fail-closed identity: adapter ka getChatKey null de to feature band.
@@ -152,6 +172,21 @@
         if (stopAll.textContent !== sl) stopAll.textContent = sl;
         stopAll.dataset.stopped = stopped ? 'true' : 'false';
       }
+      // AUTO mode button: label sirf tab badlo jab sach mein badla (observer loop).
+      let autoBtn = document.getElementById(AUTO_BTN_ID);
+      if (header && !autoBtn) {
+        autoBtn = document.createElement('button');
+        autoBtn.id = AUTO_BTN_ID;
+        autoBtn.type = 'button';
+        autoBtn.addEventListener('click', onAutoClick);
+        header.appendChild(autoBtn);
+      }
+      if (autoBtn) {
+        const mode = await getChatMode(chatKey);
+        const al = mode === 'auto' ? 'Auto: on' : 'Auto: off';
+        if (autoBtn.textContent !== al) autoBtn.textContent = al;
+        autoBtn.dataset.mode = mode;
+      }
       const enabled = state && state.state === 'active' ? 'true' : 'false';
       if (btn.dataset.enabled !== enabled) btn.dataset.enabled = enabled;
       if (state && state.state === 'active' && !bootSynced.has(chatKey)) {
@@ -163,7 +198,7 @@
       if (pendingSuggestions[chatKey]) {
         const text = pendingSuggestions[chatKey];
         delete pendingSuggestions[chatKey];
-        insertSuggestion(text, chatKey);
+        void deliverSuggestion(chatKey, text);
       }
     }
 
@@ -177,6 +212,25 @@
         await setGlobalStopped(false);
         showBanner('Resume ho gaya. Sirf enabled (consent-active) chats hi chalengi.', null);
       }
+      refreshToggle();
+    }
+
+    // AUTO toggle: sirf consent-active chat mein. Ye owner ka per-chat explicit
+    // choice hai - default hamesha 'suggest' (manual send) hota hai.
+    async function onAutoClick() {
+      const chatKey = getChatKey();
+      if (!chatKey) return;
+      const state = await getChatState(chatKey);
+      if (!state || state.state !== 'active') {
+        showBanner('Auto-reply sirf consent-active chat mein on hoti hai. Pehle AI on karo.', null);
+        return;
+      }
+      const mode = await getChatMode(chatKey);
+      const next = mode === 'auto' ? 'suggest' : 'auto';
+      await setChatMode(chatKey, next);
+      showBanner(next === 'auto'
+        ? 'Auto-reply ON: naye incoming par AI reply apne aap send hogi. Saamne wala stop kahe ya tum off karo to turant band.'
+        : 'Auto-reply OFF: AI sirf draft banayegi, send tum khud karoge.', null);
       refreshToggle();
     }
 
@@ -333,7 +387,7 @@
         });
         if (await discardIfStale()) return; // STOP: late reply discard, kuch insert nahi
         if (response && response.ok && response.data && response.data.reply) {
-          deliverSuggestion(chatKey, response.data.reply + aiMarker);
+          await deliverSuggestion(chatKey, response.data.reply + aiMarker);
         } else {
           const reason = (response && (response.error || (response.data && response.data.error))) || 'unknown error';
           if (getChatKey() === chatKey) showBanner(`Reply nahi ban payi: ${reason}`, null);
@@ -346,12 +400,40 @@
     }
 
     // RACE SAFETY: reply sirf wahi chat paaye jahan se request gayi thi.
-    function deliverSuggestion(chatKey, text) {
-      if (getChatKey() === chatKey) {
-        insertSuggestion(text, chatKey);
-      } else {
+    // Auto mode mein wahi reply apne aap send bhi ho sakti hai (guards ke saath).
+    async function deliverSuggestion(chatKey, text) {
+      if (getChatKey() !== chatKey) {
         pendingSuggestions[chatKey] = text;
+        return;
       }
+      if ((await getChatMode(chatKey)) === 'auto') {
+        await autoSend(chatKey, text);
+        return;
+      }
+      insertSuggestion(text, chatKey);
+    }
+
+    // AUTO SEND: sirf consent-active chat, sirf khaali composer, sirf jab
+    // adapter ka send button mile. Kisi bhi doubt mein manual draft par fallback -
+    // user ka likha text kabhi overwrite ya send nahi hota.
+    async function autoSend(chatKey, text) {
+      if (await isGlobalStopped()) return; // beech mein Stop all -> send nahi
+      const st = await getChatState(chatKey);
+      if (!st || st.state !== 'active') return; // consent wapas/off -> send nahi
+      const composer = getComposer();
+      if (!composer || (composer.innerText || '').trim() !== '') {
+        insertSuggestion(text, chatKey); // user type kar raha hai - draft only
+        return;
+      }
+      const sendBtn = config.sendSelector ? document.querySelector(config.sendSelector) : null;
+      if (!sendBtn) {
+        showBanner('Auto-send ka button nahi mila - draft yahan hai, khud bhejo:', text);
+        return;
+      }
+      composer.focus();
+      document.execCommand('insertText', false, text);
+      sendBtn.click();
+      showBanner('Auto-reply bhej di gayi (consent-active chat). Rokna ho to AI off ya Stop all.', null);
     }
 
     function getComposer() {

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!-- mock-telegram.html - Telegram Web ("K" version) ka DUMMY mock. Sirf local
+     E2E test ke liye. Real Telegram ka copy nahi - sirf wahi DOM shape jo
+     adapter ke selectors expect karte hain. -->
+<html><head><meta charset="utf-8"><title>Mock Telegram</title>
+<style>
+  body { font-family: sans-serif; display: flex; margin: 0; height: 100vh; }
+  .chatlist { width: 220px; border-right: 1px solid #ccc; }
+  .chatlist-chat { display: block; padding: 10px; border-bottom: 1px solid #eee; text-decoration: none; color: #000; }
+  .unread { background: #4da3e8; color: #fff; border-radius: 8px; padding: 0 6px; font-size: 12px; float: right; }
+  .unread:empty { display: none; }
+  #page-chats { flex: 1; display: flex; flex-direction: column; }
+  .topbar { padding: 10px; border-bottom: 1px solid #ccc; font-weight: bold; }
+  .bubbles { flex: 1; padding: 10px; overflow-y: auto; }
+  .bubble { max-width: 60%; margin: 6px 0; padding: 8px; border-radius: 8px; background: #eee; }
+  .bubble.is-out { margin-left: auto; background: #d3f3c0; }
+  .middle-column-footer { padding: 10px; border-top: 1px solid #ccc; display: flex; gap: 8px; }
+  .input-message-input { flex: 1; border: 1px solid #bbb; border-radius: 6px; padding: 8px; min-height: 20px; }
+  .btn-send { padding: 8px 16px; }
+</style></head><body>
+  <div class="chatlist">
+    <a class="chatlist-chat" href="#111">Alpha (dummy)<span class="unread"></span></a>
+    <a class="chatlist-chat" href="#222">Beta (dummy)<span class="unread"></span></a>
+  </div>
+  <div id="page-chats">
+    <div class="topbar"><div class="chat-info"><span class="peer-title">(koi chat kholo)</span></div></div>
+    <div class="bubbles"></div>
+    <div class="middle-column-footer">
+      <div class="input-message-input" contenteditable="true"></div>
+      <button class="btn-send" type="button">Send</button>
+    </div>
+  </div>
+<script>
+  const chats = { '111': { name: 'Alpha (dummy)', msgs: [] }, '222': { name: 'Beta (dummy)', msgs: [] } };
+  const open = { id: null };
+  const bubbles = document.querySelector('.bubbles');
+  const composer = document.querySelector('.input-message-input');
+
+  function renderBubble(m) {
+    const b = document.createElement('div');
+    b.className = 'bubble' + (m.out ? ' is-out' : '');
+    const t = document.createElement('span');
+    t.className = 'message';
+    t.textContent = m.text;
+    b.appendChild(t);
+    bubbles.appendChild(b);
+  }
+  function openChat(id) {
+    if (!chats[id]) return;
+    open.id = id;
+    if (location.hash !== '#' + id) history.pushState(null, '', '#' + id);
+    document.querySelector('.peer-title').textContent = chats[id].name;
+    bubbles.innerHTML = '';
+    chats[id].msgs.forEach(renderBubble);
+    badge(id, '');
+  }
+  function badge(id, v) {
+    const row = document.querySelector(`.chatlist-chat[href="#${id}"] .unread`);
+    if (row) row.textContent = v;
+  }
+  function receive(id, text) {
+    chats[id].msgs.push({ text, out: false });
+    if (open.id === id) renderBubble({ text, out: false });
+    else { const r = document.querySelector(`.chatlist-chat[href="#${id}"] .unread`); if (r) r.textContent = String((parseInt(r.textContent) || 0) + 1); }
+  }
+  document.querySelectorAll('.chatlist-chat').forEach((row) => {
+    row.addEventListener('click', (e) => { e.preventDefault(); openChat(row.getAttribute('href').slice(1)); });
+  });
+  document.querySelector('.btn-send').addEventListener('click', () => {
+    const text = (composer.innerText || '').trim();
+    if (!text || !open.id) return;
+    composer.innerText = '';
+    chats[open.id].msgs.push({ text, out: true });
+    renderBubble({ text, out: true });
+  });
+  window.__mock = { receive, openChat, chats };
+</script></body></html>

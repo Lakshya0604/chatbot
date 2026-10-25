@@ -28,6 +28,7 @@ const CONFIG = {
   headerSelector: '.chat-header',
   footerSelector: '.composer',
   rootSelector: '#app',
+  sendSelector: '.composer .send',
   consentMessage: 'Is chat ke messages AI provider ko bheje jaayenge. OK?',
   consentRequestText: 'Heads up: is chat mein AI-drafted replies aa sakti hain. Okay? (stop likhne par band)',
   aiMarker: ' (AI)',
@@ -41,7 +42,7 @@ function chatHtml(chatId, messages) {
     <div id="app"><div class="screen">
       <div class="chat-header"><span>Chat</span></div>
       <div class="msgs">${rows}</div>
-      <div class="composer"><div class="box" contenteditable="true"></div></div>
+      <div class="composer"><div class="box" contenteditable="true"></div><button class="send" type="button">Send</button></div>
     </div></div>`;
 }
 
@@ -195,7 +196,7 @@ test('FAIL CLOSED: stable id ke bina toggle hi nahi banta, koi request nahi', as
     <div id="app"><div class="screen">
       <div class="chat-header"><span>Sirf Naam</span></div>
       <div class="msgs"></div>
-      <div class="composer"><div class="box" contenteditable="true"></div></div>
+      <div class="composer"><div class="box" contenteditable="true"></div><button class="send" type="button">Send</button></div>
     </div></div></body></html>`, { url: 'https://chat.example/', runScripts: 'dangerously' });
   const { window } = dom;
   t.after(() => window.close());
@@ -360,4 +361,112 @@ test('BURST BATCHING: 2 rapid incoming messages = sirf 1 AI request (debounce)',
   assert.equal(calls.length, 1, 'burst mein sirf 1 request jaani chahiye');
   assert.equal(calls[0].payload.messages.at(-1).content, 'doosra message turant peeche',
     'latest message ke saath ek hi call');
+});
+
+// ---------- AUTO MODE tests ----------
+// Auto mode = owner ka per-chat explicit choice; sirf consent-active chat mein.
+// Fixture send button ka click handler "bheja gaya" simulate karta hai.
+
+function wireSend(window) {
+  const sent = [];
+  const btn = window.document.querySelector('.composer .send');
+  btn.addEventListener('click', () => {
+    const box = window.document.querySelector('.composer .box');
+    const text = (box.textContent || '').trim();
+    if (!text) return;
+    sent.push(text);
+    box.textContent = '';
+    const msgs = window.document.querySelector('.msgs');
+    const chatId = msgs.querySelector('.msg[data-chat]').getAttribute('data-chat');
+    const row = window.document.createElement('div');
+    row.className = 'msg out';
+    row.setAttribute('data-chat', chatId);
+    row.innerHTML = `<span class="txt">${text}</span>`;
+    msgs.appendChild(row);
+  });
+  return sent;
+}
+
+async function enableAuto(window) {
+  const autoBtn = window.document.getElementById('cc-auto-btn');
+  assert.ok(autoBtn, 'auto button dikhna chahiye');
+  autoBtn.click();
+  await sleep(80);
+  assert.equal(autoBtn.dataset.mode, 'auto', 'auto mode on ho gaya');
+}
+
+test('AUTO: incoming par reply apne aap send hoti hai (consent-active chat)', async (t) => {
+  const w = makeWorld({
+    initialHtml: chatHtml('c1', [{ text: 'hi', out: false }]),
+    sendMessage: () => Promise.resolve({ ok: true, data: { reply: 'auto jawab' } }),
+  }, t);
+  const sent = wireSend(w.window);
+  await enableChat(w.window);
+  await enableAuto(w.window);
+  appendIncoming(w.window, 'c1', 'kal mil?');
+  await sleep(BATCH * 6);
+  assert.deepEqual(sent, ['auto jawab (AI)'], 'adapter ke send button se reply gayi');
+  assert.ok(bannerText(w.window).includes('Auto-reply bhej di gayi'), 'banner ne auto-send bataya');
+  assert.equal(composerOf(w.window).textContent.trim(), '', 'send ke baad composer khaali');
+});
+
+test('AUTO: user type kar raha ho to send NAHI - sirf draft banner', async (t) => {
+  const w = makeWorld({
+    initialHtml: chatHtml('c1', [{ text: 'hi', out: false }]),
+    sendMessage: () => Promise.resolve({ ok: true, data: { reply: 'auto jawab' } }),
+  }, t);
+  const sent = wireSend(w.window);
+  await enableChat(w.window);
+  await enableAuto(w.window);
+  composerOf(w.window).textContent = 'mera adhura message';
+  appendIncoming(w.window, 'c1', 'kal mil?');
+  await sleep(BATCH * 6);
+  assert.deepEqual(sent, [], 'user ke text ke saath kuch send nahi hua');
+  assert.equal(composerOf(w.window).textContent, 'mera adhura message', 'user ka text intact');
+  assert.ok(bannerText(w.window).includes('auto jawab'), 'draft banner mein dikhi');
+});
+
+test('AUTO: consent-active ke bina auto on hi nahi hota', async (t) => {
+  const w = makeWorld({
+    initialHtml: chatHtml('c1', [{ text: 'hi', out: false }]),
+    sendMessage: () => Promise.resolve({ ok: true, data: { reply: 'x' } }),
+  }, t);
+  await sleep(60);
+  const autoBtn = w.window.document.getElementById('cc-auto-btn');
+  autoBtn.click(); // chat abhi consent-active nahi
+  await sleep(60);
+  assert.equal(autoBtn.dataset.mode, 'suggest', 'mode suggest hi raha');
+  assert.ok(bannerText(w.window).includes('consent-active'), 'reason bataya gaya');
+});
+
+test('AUTO: reply aane se pehle Stop all -> send NAHI', async (t) => {
+  let resolveIt;
+  const w = makeWorld({
+    initialHtml: chatHtml('c1', [{ text: 'hi', out: false }]),
+    sendMessage: () => new Promise((r) => { resolveIt = r; }),
+  }, t);
+  const sent = wireSend(w.window);
+  await enableChat(w.window);
+  await enableAuto(w.window);
+  appendIncoming(w.window, 'c1', 'kal mil?');
+  await sleep(BATCH * 3); // batch fire ho chuka, reply in-flight
+  w.window.document.getElementById('cc-stopall-btn').click();
+  await sleep(60);
+  resolveIt({ ok: true, data: { reply: 'late jawab' } });
+  await sleep(120);
+  assert.deepEqual(sent, [], 'stop ke baad late reply send nahi hui');
+  assert.equal(composerOf(w.window).textContent.trim(), '', 'composer khaali raha');
+});
+
+test('AUTO off (default): suggestion aati hai par send NAHI hota', async (t) => {
+  const w = makeWorld({
+    initialHtml: chatHtml('c1', [{ text: 'hi', out: false }]),
+    sendMessage: () => Promise.resolve({ ok: true, data: { reply: 'draft jawab' } }),
+  }, t);
+  const sent = wireSend(w.window);
+  await enableChat(w.window);
+  appendIncoming(w.window, 'c1', 'kal mil?');
+  await sleep(BATCH * 6);
+  assert.deepEqual(sent, [], 'default mode mein kuch auto-send nahi hua');
+  assert.ok(composerOf(w.window).textContent.includes('draft jawab'), 'draft composer mein hai');
 });
