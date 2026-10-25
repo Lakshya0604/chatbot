@@ -116,10 +116,15 @@ chat - koi aur person involved nahi) sabse safe jagah hai:
    chahiye. Na dikhein to selectors live Telegram se match nahi kar rahe -
    adapter ko live DOM ke hisaab se update karna hoga (expected ho sakta hai,
    ye adapter live-unverified hai).
-4. Saved Messages mein khud ko ek test message bhejo. Mock reply draft ban kar
-   composer mein aani chahiye (consent flow ke baad). `Auto: on` karke mock
-   auto-send bhi test kar sakte ho - reply sirf tumhe hi jaati hai.
-5. Sab theek ho to `AI_MOCK` hata kar real backend par switch karo.
+4. Dhyan do: Saved Messages mein tum jo bhi bhejte ho wo 'outgoing' hota hai,
+   aur engine by design sirf INCOMING messages par react karta hai (apne
+   messages par kabhi reply nahi). Isliye yahan sirf selectors/buttons validate
+   honge - reply trigger NAHI hogi. Ye expected hai, bug nahi.
+5. Poori pipeline (incoming -> suggestion/auto-send) live test karne ke liye
+   incoming message chahiye. Bina kisi third party ke: BotFather se apna test
+   bot banao (free, official Telegram feature) - bot ke chat mein bot ke replies
+   incoming hote hain, wahan mock mode mein pipeline verify ho sakti hai.
+6. Sab theek ho to `AI_MOCK` hata kar real backend par switch karo.
 
 Is self-check mein koi third-party read/send nahi hota. Kisi real contact par
 kabhi bhi on karne se pehle uski explicit consent lena mandatory hai.
@@ -130,9 +135,9 @@ kabhi bhi on karne se pehle uski explicit consent lena mandatory hai.
 |---|---|---|
 | Telegram Web | **Adapter shipped - EXPERIMENTAL** | Mock page par E2E tested; live Telegram par selectors/behavior unverified. Consent gate mandatory: recipient ke explicit haan ke bina kuch process/send nahi. Auto-open read-receipt bhej sakta hai. Terms review: telegram.org/tos/content-licensing, core.telegram.org/api/terms. |
 | WhatsApp | **Removed** | Personal-account auto-messaging ban-risk; user ke request par hata diya. |
-| Instagram DMs | **Researched - NOT RECOMMENDED (ban risk)** | Engine platform-agnostic hai, to adapter technically possible hai. LEKIN: Meta ToS automated access ko explicitly prohibit karta hai - "logged-in ho ya na ho" (Meta AB 587 filing, oag.ca.gov). Browser-extension automation (clicks/typing simulate) wahi category hai jise Meta actively detect karke shadowban/terminate karta hai (flowdm.in/blog/instagram-dm-automation-safe-guide, zaprep.com/instagram-automation-compliance-guide). Official Instagram Messaging API sirf Business/Creator accounts ke liye hai - personal accounts supported nahi (docs.mixpost.app). Personal use ka koi compliant route nahi. WhatsApp wali hi situation - build tabhi jab user risk explicitly accept kare. |
-| Facebook Messenger | **Researched - NOT RECOMMENDED (ban risk)** | Same Meta ToS + enforcement. Messenger Platform API Pages/businesses ke liye hai, personal Messenger ke liye nahi. Same verdict as Instagram. |
-| Threads | **Researched - NOT FEASIBLE abhi** | Web DMs abhi rollout mein hain (limited test, May 2026 - theverge.com/tech/924436). Koi DM API exist hi nahi karta (magnetiq.cloud/dm-api, May 2026 check). DOM undocumented + unstable + same Meta ban risk. Abhi koi safe route nahi - na API, na DOM. |
+| Instagram DMs | **Researched - koi build nahi, user decision pending** | Do routes: (A) Official Instagram Send API - sirf professional (Business/Creator) account, `instagram_business_manage_messages` permission, recipient ka pehle message aana zaroori (Meta ka official Postman doc: postman.com/meta/instagram). Personal account par ye API nahi chalti. (B) telegram.js jaisa browser adapter - technically possible, lekin Meta ToS automated access restrict karta hai (logged-in bhi) aur enforcement risk hai; ye user ka explicit decision hoga. |
+| Facebook Messenger | **Researched - koi build nahi, user decision pending** | (A) Official Messenger Platform API - Facebook Page + `pages_messaging` permission chahiye (Meta official Postman doc: postman.com/meta/messenger-platform-api); personal Messenger ke liye nahi. (B) Browser adapter - same ToS/enforcement exposure as Instagram. |
+| Threads | **Researched - abhi koi API route exist nahi karta** | Meta ke official Threads API mein koi DM endpoint/permission nahi - sirf posts/replies/insights (postman.com/meta/threads). Web DMs abhi rollout mein hain (Threads boss Connor Hayes ka official post, threads.com/@conno_r/post/DX9yHGTDu7h). Sirf browser route bachta hai - undocumented DOM + same ToS exposure. |
 
 ## Verified kya hai (aur kya nahi) - 25 Oct 2026
 
