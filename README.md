@@ -104,13 +104,35 @@ Extension: `chrome://extensions` → Developer mode → Load unpacked → `exten
 Options mein character bharo, backend URL + Auth token set karo, **Preview** se
 dummy message par real reply dekho.
 
+### Live self-check (sabse safe Telegram validation - sirf tum, koi third party nahi)
+
+Live Telegram par pehli baar verify karna ho to **Saved Messages** (apni khud ki
+chat - koi aur person involved nahi) sabse safe jagah hai:
+
+1. Backend mock mode mein chalao: `AI_MOCK=true npm start` (koi AI call nahi,
+   fixed dummy reply).
+2. `web.telegram.org` kholo, **Saved Messages** kholo.
+3. Check karo: header mein `AI off` / `Stop all` / `Auto: off` buttons dikhne
+   chahiye. Na dikhein to selectors live Telegram se match nahi kar rahe -
+   adapter ko live DOM ke hisaab se update karna hoga (expected ho sakta hai,
+   ye adapter live-unverified hai).
+4. Saved Messages mein khud ko ek test message bhejo. Mock reply draft ban kar
+   composer mein aani chahiye (consent flow ke baad). `Auto: on` karke mock
+   auto-send bhi test kar sakte ho - reply sirf tumhe hi jaati hai.
+5. Sab theek ho to `AI_MOCK` hata kar real backend par switch karo.
+
+Is self-check mein koi third-party read/send nahi hota. Kisi real contact par
+kabhi bhi on karne se pehle uski explicit consent lena mandatory hai.
+
 ## Platform status (honest)
 
 | Platform | Status | Kyun |
 |---|---|---|
 | Telegram Web | **Adapter shipped - EXPERIMENTAL** | Mock page par E2E tested; live Telegram par selectors/behavior unverified. Consent gate mandatory: recipient ke explicit haan ke bina kuch process/send nahi. Auto-open read-receipt bhej sakta hai. Terms review: telegram.org/tos/content-licensing, core.telegram.org/api/terms. |
 | WhatsApp | **Removed** | Personal-account auto-messaging ban-risk; user ke request par hata diya. |
-| Instagram / Facebook / Threads | **Open scope, not started** | User ne ye platforms bhi request kiye hain; har ek ka feasibility/terms check alag se baaki hai. Meta ToS personal automation ko broadly restrict karta hai - koi promise nahi. |
+| Instagram DMs | **Researched - NOT RECOMMENDED (ban risk)** | Engine platform-agnostic hai, to adapter technically possible hai. LEKIN: Meta ToS automated access ko explicitly prohibit karta hai - "logged-in ho ya na ho" (Meta AB 587 filing, oag.ca.gov). Browser-extension automation (clicks/typing simulate) wahi category hai jise Meta actively detect karke shadowban/terminate karta hai (flowdm.in/blog/instagram-dm-automation-safe-guide, zaprep.com/instagram-automation-compliance-guide). Official Instagram Messaging API sirf Business/Creator accounts ke liye hai - personal accounts supported nahi (docs.mixpost.app). Personal use ka koi compliant route nahi. WhatsApp wali hi situation - build tabhi jab user risk explicitly accept kare. |
+| Facebook Messenger | **Researched - NOT RECOMMENDED (ban risk)** | Same Meta ToS + enforcement. Messenger Platform API Pages/businesses ke liye hai, personal Messenger ke liye nahi. Same verdict as Instagram. |
+| Threads | **Researched - NOT FEASIBLE abhi** | Web DMs abhi rollout mein hain (limited test, May 2026 - theverge.com/tech/924436). Koi DM API exist hi nahi karta (magnetiq.cloud/dm-api, May 2026 check). DOM undocumented + unstable + same Meta ban risk. Abhi koi safe route nahi - na API, na DOM. |
 
 ## Verified kya hai (aur kya nahi) - 25 Oct 2026
 
