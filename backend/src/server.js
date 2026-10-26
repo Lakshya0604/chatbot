@@ -86,7 +86,7 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/reply', async (req, res) => {
-  const { character, messages } = req.body || {};
+  const { character, messages, followUp } = req.body || {};
 
   // Shared-secret check: .env ka AUTH_TOKEN aur extension ka token match hona chahiye.
   // Isse koi aur app tumhare local backend (aur AI credit) use nahi kar sakti.
@@ -102,8 +102,14 @@ app.post('/reply', async (req, res) => {
   const finalMessages = buildMessages(character, messages);
 
   // Loop prevention: agar last message incoming (user) nahi hai, reply ka koi matlab nahi.
-  if (finalMessages[finalMessages.length - 1].role !== 'user') {
+  // EXCEPTION: explicit followUp request (owner ka last message ke baad saamne wala
+  // chup hai) - tab character ka ek naya follow-up message banana hi maqsad hai.
+  const isFollowUp = followUp === true && finalMessages[finalMessages.length - 1].role === 'assistant';
+  if (finalMessages[finalMessages.length - 1].role !== 'user' && !isFollowUp) {
     return res.status(400).json({ error: 'last message must be from the other person (role: user)' });
+  }
+  if (isFollowUp) {
+    finalMessages.push({ role: 'user', content: '[SYSTEM NOTE: saamne wale ka is message par koi jawab NAHI aaya. Character ki taraf se ek chhota, natural follow-up likho jo baat aage badhaye - naya sawal ya halka poke. Sirf follow-up message do, koi explanation nahi.]' });
   }
 
   try {

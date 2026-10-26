@@ -37,7 +37,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     // Sirf character + messages backend ko bhejo - backendUrl jaisi local cheezein nahi.
-    const body = JSON.stringify({ character: payload.character, messages: payload.messages });
+    const body = JSON.stringify({ character: payload.character, messages: payload.messages, followUp: payload.followUp === true });
 
     fetch(`${backendUrl}/reply`, {
       method: 'POST',
@@ -61,4 +61,57 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   });
 
   return true; // sendResponse async chalega
+});
+
+// ---------- CUSTOM mode + form-fill entry points (user-controlled, per-site) ----------
+// activeTab: sirf USI tab par access milti hai jahan user ne khud button/click
+// kiya. Kisi site par permanent access tabhi jab user ne wahan chat select ki ho
+// (CC_REGISTER_SITE -> registerContentScripts sirf us origin ke liye).
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab || !tab.id || !/^https?:/.test(tab.url || '')) return;
+  try {
+    // Picker ke liye engine+utils+custom inject karo (engine inert hai jab tak
+    // koi adapter createChatAssistant na bulaye; custom.js picker chalayega).
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/custom.js'],
+    });
+    chrome.tabs.sendMessage(tab.id, { type: 'CC_START_PICKER' }, () => void chrome.runtime.lastError);
+  } catch (e) {
+    // chrome:// , Web Store, restricted pages par injection fail hoti hai - normal.
+  }
+});
+
+// Picker finish hone par: us origin ke liye persistent content-script registration,
+// taaki agle visit par selected-chat engine apne aap chale.
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (!request || request.type !== 'CC_REGISTER_SITE' || !request.origin) return false;
+  const id = 'cc-custom-' + request.origin.replace(/[^a-z0-9]/gi, '_');
+  chrome.scripting.registerContentScripts([{
+    id,
+    matches: [request.origin + '/*'],
+    js: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/custom.js'],
+    runAt: 'document_idle',
+    persistAcrossSessions: true,
+  }])
+    .then(() => sendResponse({ ok: true }))
+    .catch((err) => sendResponse({ ok: false, error: String(err) }));
+  return true;
+});
+
+// Form auto-fill: right-click context menu se, sirf user ke click par.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'cc-fill-form',
+    title: 'Character Chatbot: form auto-fill (review ke baad Submit KHUD karo)',
+    contexts: ['page', 'editable'],
+  });
+});
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== 'cc-fill-form' || !tab || !tab.id) return;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content/formfill.js'] });
+    chrome.tabs.sendMessage(tab.id, { type: 'CC_FILL_FORM' }, () => void chrome.runtime.lastError);
+  } catch (e) { /* restricted page */ }
 });

@@ -46,7 +46,7 @@ function chatHtml(chatId, messages) {
     </div></div>`;
 }
 
-function makeWorld({ sendMessage, initialHtml }, t) {
+function makeWorld({ sendMessage, initialHtml, seedLocal, testConfig }, t) {
   const dom = new JSDOM(`<!DOCTYPE html><html><body>${initialHtml}</body></html>`, {
     url: 'https://chat.example/', runScripts: 'dangerously',
   });
@@ -63,7 +63,7 @@ function makeWorld({ sendMessage, initialHtml }, t) {
   };
   window.confirm = () => true;
 
-  const store = { local: {}, sync: { character: { name: 'TestBot' } } };
+  const store = { local: seedLocal || {}, sync: { character: { name: 'TestBot' } } };
   const calls = [];
   window.chrome = {
     storage: {
@@ -73,13 +73,25 @@ function makeWorld({ sendMessage, initialHtml }, t) {
     runtime: { sendMessage: (msg) => { calls.push(msg); return sendMessage(msg); } },
   };
 
-  window.__CC_TEST__ = { BATCH_DELAY_MS: BATCH };
+  window.__CC_TEST__ = Object.assign({ BATCH_DELAY_MS: BATCH }, testConfig || {});
   window.eval(SCRIPT);
   window.ChatEngine.createChatAssistant(CONFIG);
   return { window, calls, store };
 }
 
 const composerOf = (w) => w.document.querySelector('.composer .box');
+
+async function primeHistory(window) {
+  // Engine first-bind par visible history BASELINE karta hai (bina trigger) -
+  // real sites par history boot ke baad render hoti hai = priming mutation.
+  // Fixture mein history pre-rendered hai, isliye no-op mutation se prime karo.
+  const msgs = window.document.querySelector('.msgs');
+  const tmp = window.document.createElement('span');
+  msgs.appendChild(tmp);
+  tmp.remove();
+  await sleep(BATCH + 120);
+}
+
 const bannerText = (w) => { const b = w.document.getElementById('cc-banner'); return b ? b.textContent : ''; };
 
 async function enableChat(window) {
@@ -106,6 +118,15 @@ function appendIncoming(window, chatId, text, i = 99) {
   msgs.appendChild(row);
 }
 
+function appendOutgoing(window, chatId, text) {
+  const msgs = window.document.querySelector('.msgs');
+  const row = window.document.createElement('div');
+  row.className = 'msg out';
+  row.setAttribute('data-chat', chatId);
+  row.innerHTML = `<span class="txt">${text}</span>`;
+  msgs.appendChild(row);
+}
+
 function switchChat(window, chatId, messages) {
   window.document.querySelector('.screen').innerHTML = chatHtml(chatId, messages)
     .replace(/<div id="app"><div class="screen">|<\/div><\/div>$/g, '');
@@ -118,6 +139,7 @@ test('happy path: naye incoming par suggestion composer mein (send NAHI)', async
     initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla jawab' }]),
   }, t);
   await enableChat(window);
+  await primeHistory(window);
   appendIncoming(window, 'aaa', 'hello ji');
   await sleep(250);
 
@@ -136,6 +158,7 @@ test('RACE: chat switch ke dauraan reply doosri chat mein NAHI jaati', async (t)
     initialHtml: chatHtml('aaa', [{ out: true, text: 'A ka pichla' }]),
   }, t);
   await enableChat(window);
+  await primeHistory(window);
   appendIncoming(window, 'aaa', 'A ka naya message');
   await sleep(BATCH + 80);
 
@@ -159,6 +182,7 @@ test('composer mein user text ho to overwrite nahi hota (banner fallback)', asyn
     initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
   }, t);
   await enableChat(window);
+  await primeHistory(window);
   composerOf(window).textContent = 'mera apna draft';
   appendIncoming(window, 'aaa', 'kya haal');
   await sleep(250);
@@ -184,6 +208,7 @@ test('same message par duplicate trigger nahi hota', async (t) => {
     initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
   }, t);
   await enableChat(window);
+  await primeHistory(window);
   appendIncoming(window, 'aaa', 'ek hi message');
   await sleep(250);
   window.document.querySelector('.msgs').appendChild(window.document.createElement('span'));
@@ -246,6 +271,7 @@ test('STOP GATE: saamne wala stop kahe to chat band, message AI ko nahi jaata', 
     initialHtml: chatHtml('aaa', [{ out: true, text: 'old' }]),
   }, t);
   await enableChat(window);
+  await primeHistory(window);
 
   appendIncoming(window, 'aaa', 'please stop');
   await sleep(250);
@@ -465,8 +491,80 @@ test('AUTO off (default): suggestion aati hai par send NAHI hota', async (t) => 
   }, t);
   const sent = wireSend(w.window);
   await enableChat(w.window);
+  await primeHistory(w.window);
   appendIncoming(w.window, 'c1', 'kal mil?');
   await sleep(BATCH * 6);
   assert.deepEqual(sent, [], 'default mode mein kuch auto-send nahi hua');
   assert.ok(composerOf(w.window).textContent.includes('draft jawab'), 'draft composer mein hai');
+});
+
+test('FIRST BIND BASELINE: active-consent reload par historical incoming trigger NAHI, sirf naya incoming', async (t) => {
+  // Orbix-reload scenario: consent pehle se active, history bind ke BAAD render hoti hai.
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'r' } }),
+    initialHtml: chatHtml('aaa', []),
+    seedLocal: { chatConsent: { 'id:aaa': { state: 'active', ts: 't', note: 'n', lastHandled: '' } } },
+  }, t);
+  await sleep(120);
+  // History late render hoti hai (real reload): pehli observation = BASELINE, trigger NAHI.
+  appendIncoming(window, 'aaa', 'kal ka purana message');
+  await sleep(250);
+  assert.equal(calls.length, 0, 'first bind par historical incoming AI ko NAHI gaya');
+  // Uske BAAD aaya genuinely naya incoming trigger hota hai.
+  appendIncoming(window, 'aaa', 'abhi ka naya message', 100);
+  await sleep(250);
+  assert.equal(calls.length, 1, 'bind ke baad ka naya incoming trigger hota hai');
+});
+
+test('FOLLOW-UP: last OUTGOING ke baad silence par EXACTLY 1 follow-up generate hota hai, 2nd NAHI', async (t) => {
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'follow-up draft' } }),
+    initialHtml: chatHtml('aaa', [{ out: false, text: 'tu bata kya chal raha' }]),
+    testConfig: { FOLLOWUP_DELAY_MS: 300 },
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'kal free hai kya?');
+  await sleep(300);
+  assert.equal(calls.length, 1, 'incoming par normal reply');
+  const base = calls.length;
+  appendOutgoing(window, 'aaa', 'haan yaar, bilkul free');
+  await sleep(900); // 300ms timer + generation
+  assert.equal(calls.length, base + 1, 'silence ke baad EXACTLY 1 follow-up request');
+  const fuCall = calls[calls.length - 1];
+  assert.equal(fuCall.payload.followUp, true, 'follow-up flag backend tak jaata hai');
+  assert.equal(fuCall.payload.messages.at(-1).role, 'assistant', 'follow-up mein last message OUTGOING (assistant)');
+  await sleep(900);
+  assert.equal(calls.length, base + 1, '2nd follow-up NAHI (cap=1 per silence episode)');
+});
+
+test('FOLLOW-UP CANCEL: owner typing ya Stop-all pending follow-up rok deta hai', async (t) => {
+  // (a) owner typing cancel
+  const w1 = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'x' } }),
+    initialHtml: chatHtml('aaa', [{ out: false, text: 'hi' }]),
+    testConfig: { FOLLOWUP_DELAY_MS: 300 },
+  }, t);
+  await enableChat(w1.window);
+  await primeHistory(w1.window);
+  appendOutgoing(w1.window, 'aaa', 'mera message');
+  await sleep(120); // timer armed, abhi fire nahi
+  composerOf(w1.window).textContent = 'owner khud type kar raha';
+  composerOf(w1.window).dispatchEvent(new w1.window.Event('input', { bubbles: true }));
+  await sleep(700); // timer window cross
+  assert.equal(w1.calls.length, 0, 'owner typing ne pending follow-up cancel kiya');
+
+  // (b) Stop-all cancel
+  const w2 = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'x' } }),
+    initialHtml: chatHtml('aaa', [{ out: false, text: 'hi' }]),
+    testConfig: { FOLLOWUP_DELAY_MS: 300 },
+  }, t);
+  await enableChat(w2.window);
+  await primeHistory(w2.window);
+  appendOutgoing(w2.window, 'aaa', 'doosra message');
+  await sleep(120);
+  w2.window.document.getElementById('cc-stopall-btn').click(); // STOP ALL
+  await sleep(700);
+  assert.equal(w2.calls.length, 0, 'Stop-all ne pending follow-up cancel kiya');
 });

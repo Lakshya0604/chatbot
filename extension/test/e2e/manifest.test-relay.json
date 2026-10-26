@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Character Chatbot E2E TEST BUILD (production code, dummy origin allowed)",
+  "version": "0.5.0",
+  "description": "TEST BUILD: production v0.5.0 code + background relay; sirf dummy 127.0.0.1:8789 origin add kiya gaya hai. Production manifest alag hai.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*",
+    "http://127.0.0.1:8789/*",
+    "http://127.0.0.1:8791/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.telegram.org/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/telegram.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://127.0.0.1:8789/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/custom-utils.js",
+        "content/adapters/custom.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Character Chatbot: is site par apni chat select karo"
+  }
+}

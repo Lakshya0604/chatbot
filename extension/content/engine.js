@@ -45,7 +45,24 @@
     //                             auto-reply draft ban jati hai, send nahi hoti)
     // }
     const TEST = (typeof global !== 'undefined' && global.__CC_TEST__) || {};
-    const BATCH_DELAY_MS = TEST.BATCH_DELAY_MS || 2500;
+    const BATCH_DELAY_MS = TEST.BATCH_DELAY_MS || 0; // 0 = pacing khud decide kare
+    // Reply pacing (user spec): zyada tar 2-3s, kabhi kabhi (~20%) 8-10s. Ye sirf
+    // pacing hai - ban-risk kam karne ka claim NAHI. Delay ke DORAAN bhi saare
+    // guards (stop/consent/identity/typing) laagu rehte hain: timer fire hone par
+    // generateSuggestion sab dobara check karta hai.
+    function replyDelayMs() {
+      if (TEST.BATCH_DELAY_MS) return TEST.BATCH_DELAY_MS;
+      const r = Math.random();
+      if (r < 0.2) return 8000 + Math.floor(Math.random() * 2000);
+      return 2000 + Math.floor(Math.random() * 1000);
+    }
+    // Proactive follow-up (user spec, SETTLED hissa): saamne wala (incoming side)
+    // 1 MIN chup rahe aur last message hamari taraf se ho, to character KHUD SE
+    // ek follow-up kare (AUTO: send, SUGGEST: draft). Doosre follow-up ka
+    // interval/count abhi user ne settle NAHI kiya - isliye session mein MAX 1;
+    // naya incoming aane par counter reset. Cancel: Stop all, consent off/stop,
+    // chat switch, naya incoming. Kabhi unlimited/self-triggered nahi.
+    const FOLLOWUP_DELAY_MS = TEST.FOLLOWUP_DELAY_MS || 60000;
     const CONTEXT_MESSAGE_LIMIT = 20;
     const TOGGLE_ID = 'cc-toggle-btn';
     const BANNER_ID = 'cc-banner';
@@ -53,6 +70,35 @@
     const aiMarker = config.aiMarker || '';
 
     let batchTimer = null;
+    let followUpTimer = null;
+    let engineInserting = false; // engine ka apna insertText owner-typing se alag
+    let followUpsSent = 0; // session scope; naya incoming par reset (2nd ka spec pending)
+    let bootLastOutgoing = undefined; // boot ke waqt jo outgoing already tha - US par follow-up NAHI
+    let primedChatKey = null; // jis chat ka visible history baseline ho chuka
+    let lastArmedOutgoing = undefined; // jis outgoing content par follow-up already arm ho chuka
+
+    function clearFollowUp() {
+      if (followUpTimer) { clearTimeout(followUpTimer); followUpTimer = null; }
+    }
+    function scheduleFollowUp() {
+      clearFollowUp();
+      followUpTimer = setTimeout(() => void maybeFollowUp(), FOLLOWUP_DELAY_MS);
+    }
+    async function maybeFollowUp() {
+      followUpTimer = null;
+      if (await isGlobalStopped()) return;
+      if (followUpsSent >= 1) return; // doosra follow-up: spec pending, unlimited NAHI
+      const chatKey = getChatKey();
+      if (!chatKey) return;
+      const st = await getChatState(chatKey);
+      if (!st || st.state !== 'active') return; // consent band -> kuch nahi
+      const msgs = readMessages();
+      const last = msgs[msgs.length - 1];
+      if (!last || last.role === 'user') return; // beech mein incoming aa gaya
+      followUpsSent++;
+      showBanner('Saamne wala 1 min se chup hai - character khud follow-up kar raha hai (roknna ho to AI off / Stop all).', null);
+      await generateSuggestion({ followUp: true });
+    }
     let busy = false;
     let lastSeenIncoming = '';
     // epoch: har stop/off/state-change par badhta hai. In-flight AI request ka
@@ -207,6 +253,7 @@
       if (!stopped) {
         // STOP ALL: queued batch cancel, in-flight discard (epoch), sab chats dormant.
         await setGlobalStopped(true);
+        clearFollowUp();
         showBanner('STOP ALL: sabhi chats par AI band. Resume all se hi wapas chalega.', null);
       } else {
         await setGlobalStopped(false);
@@ -242,6 +289,7 @@
       if (state && state.state === 'active') {
         epoch++; // in-flight reply discard hogi
         if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+        clearFollowUp();
         await setChatState(chatKey, null, 'owner ne band kiya');
         removeBanner();
         refreshToggle();
@@ -255,7 +303,7 @@
         await setChatState(chatKey, 'pending', 'consent request draft diya gaya');
         const draft = typeof config.consentRequestText === 'function'
           ? config.consentRequestText() : config.consentRequestText;
-        if (draft) insertSuggestion(draft, chatKey); // OWNER khud review karke send karega
+        if (draft) await insertSuggestion(draft, chatKey); // OWNER khud review karke send karega
         refreshToggle();
         return;
       }
@@ -274,10 +322,38 @@
     }
 
     // ---------- message reading ----------
+    // lastHandled PERSIST hota hai (chatConsent record ke andar) - warna reload/
+    // reopen par PURANA incoming "naya" lag ke dobara reply chala jata (duplicate/
+    // unsolicited send risk). Boot par persisted value se shuru; sirf is session
+    // mein OBSERVE hua naya incoming hi trigger hota hai.
+    async function persistLastHandled(chatKey, content) {
+      if (!chatKey) return;
+      const map = (await storageGet('local', 'chatConsent')) || {};
+      const rec = map[chatKey];
+      if (!rec) return; // consent record hi nahi (inactive chat) - kuch mat likho
+      if (rec.lastHandled === content) return;
+      map[chatKey] = Object.assign({}, rec, { lastHandled: content });
+      await storageSet('local', { chatConsent: map });
+    }
     function snapshotIncoming() {
       const msgs = readMessages();
       const last = msgs[msgs.length - 1];
       lastSeenIncoming = last && last.role === 'user' ? last.content : '';
+      const chatKey = getChatKey();
+      // Activation/stop ke waqt ka snapshot = first-bind priming ka bhi baseline.
+      // Warna low-churn DOMs par activation ke TURANT baad aaya pehla incoming
+      // "history" samajh ke prime ho kar swallow ho jata hai (whatsapp mock mein
+      // mila). Saath hi historical outgoing ka follow-up arm bhi rokna hai.
+      if (chatKey && msgs.length) {
+        // GUARD: sirf tab prime karo jab koi message ACTUALLY render ho chuka ho.
+        // Empty home/list screen par priming consume karne se (Orbix hash-router:
+        // ek hi chatKey sab screens ka) baad mein khuli asli chat ki history
+        // "naya" lag ke trigger/send ho jati hai (2j regression). lastSeenIncoming
+        // ka snapshot upar hi set ho chuka hai; yahan sirf priming consume hai.
+        primedChatKey = chatKey;
+        bootLastOutgoing = last && last.role !== 'user' ? last.content : null;
+        void persistLastHandled(chatKey, lastSeenIncoming);
+      }
     }
 
     function readMessages() {
@@ -300,6 +376,7 @@
         // Stop ke DORAAN aaye messages "seen" mark karo - resume par unka purana
         // backlog reply na bane (sirf resume ke BAAD ke messages trigger honge).
         snapshotIncoming();
+        clearFollowUp();
         return; // GLOBAL STOP ALL
       }
       const enabled = document.getElementById(TOGGLE_ID);
@@ -308,14 +385,47 @@
       if (!chatKey) return;
       const messages = readMessages();
       const last = messages[messages.length - 1];
-      if (!last || last.role !== 'user') return;
+      if (primedChatKey !== chatKey && last) {
+        // FIRST BIND (boot/reload/reopen/chat-switch): jo history abhi dikh rahi
+        // hai use BASELINE karo - bina generate/send. Historical incoming par
+        // kabhi unsolicited reply NAHI; sirf iske BAAD aaya naya incoming trigger
+        // hoga (owner chahe to khud consent toggle/refresh karke current par
+        // reply kara sakta hai - wo uska explicit action hai).
+        // NOTE: sirf tab prime karo jab koi message render ho chuka ho - empty
+        // home/list screen par priming consume karne se asli history-render
+        // trigger ban jata hai (Orbix hash-router: ek hi chatKey sab chats ka).
+        primedChatKey = chatKey;
+        if (last.role === 'user') {
+          lastSeenIncoming = last.content;
+          void persistLastHandled(chatKey, last.content);
+        }
+        bootLastOutgoing = last.role !== 'user' ? last.content : null;
+        return;
+      }
+      if (!last || last.role !== 'user') {
+        // Sirf IS SESSION mein aaya NAYA outgoing follow-up arm kare; reload ke
+        // baad purani history dekh ke timer mat chalao (stale-context send risk).
+        // lastArmedOutgoing dedup: wahi outgoing ke har DOM mutation par timer
+        // dobara arm/reset NAHI (warna owner-typing cancel turant re-arm ho jata).
+        if (last && last.content !== bootLastOutgoing && last.content !== lastArmedOutgoing) {
+          lastArmedOutgoing = last.content;
+          scheduleFollowUp();
+        }
+        return;
+      }
+      clearFollowUp();
+      followUpsSent = 0; // naya incoming = doosri side active; follow-up counter reset
+      bootLastOutgoing = null; // ab aage ke outgoing "naye" hain
+      lastArmedOutgoing = undefined; // naya episode: agla outgoing phir arm karega
       if (last.content === lastSeenIncoming) return;
       lastSeenIncoming = last.content;
+      void persistLastHandled(chatKey, last.content);
 
       // STOP GATE: pehle stop check - ye message AI provider ko KABHI nahi jaata.
       if (stopPattern.test(last.content)) {
         epoch++;
         if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+        clearFollowUp();
         await setChatState(chatKey, 'stopped', 'recipient ne stop kaha: ' + last.content.slice(0, 80));
         showBanner('AI band kar diya - saamne wale ne stop kaha. Fresh consent ke bina wapas on nahi hoga.', null);
         refreshToggle();
@@ -323,9 +433,16 @@
       }
 
       if (batchTimer) clearTimeout(batchTimer);
-      batchTimer = setTimeout(() => void generateSuggestion(), BATCH_DELAY_MS);
+      batchTimer = setTimeout(() => void generateSuggestion(), replyDelayMs());
     }
 
+    // Owner composer mein TYPE kare to pending follow-up CANCEL (owner khud
+    // likh raha hai = silence khatam). Engine ka apna insertText ignore hota hai.
+    document.addEventListener('input', (e) => {
+      if (engineInserting || !followUpTimer) return;
+      const c = getComposer();
+      if (c && (e.target === c || c.contains(e.target))) clearFollowUp();
+    }, true);
     const observer = new MutationObserver(() => void onPossibleNewMessage());
 
     function attachObserver() {
@@ -338,6 +455,7 @@
       attachObserver();
     });
 
+    let booted = false;
     function boot() {
       const root = document.querySelector(config.rootSelector);
       if (!root) {
@@ -347,10 +465,11 @@
       appObserver.observe(root, { childList: true, subtree: true });
       refreshToggle();
       attachObserver();
+      if (!booted) { booted = true; }
     }
 
     // ---------- reply generation ----------
-    async function generateSuggestion() {
+    async function generateSuggestion(opts) {
       if (busy) return;
       if (await isGlobalStopped()) return;
       const chatKey = getChatKey();
@@ -360,9 +479,14 @@
       const myEpoch = epoch;
 
       const messages = readMessages();
-      if (!messages.length || messages[messages.length - 1].role !== 'user') return;
-      // Dobara stop check (batch window mein naya stop message aa sakta hai).
-      if (stopPattern.test(messages[messages.length - 1].content)) {
+      if (!messages.length) return;
+      const lastMsg = messages[messages.length - 1];
+      // Normal trigger: last incoming par jawab. FOLLOW-UP: last OUTGOING par bhi
+      // generate karna hi feature hai (saamne wala chup, character aage badhata hai).
+      if (lastMsg.role !== 'user' && !(opts && opts.followUp)) return;
+      // Stop gate SIRF incoming par - follow-up mein last message owner ka apna
+      // hota hai, us par recipient-stop check ka matlab nahi.
+      if (lastMsg.role === 'user' && stopPattern.test(lastMsg.content)) {
         await setChatState(chatKey, 'stopped', 'recipient ne stop kaha');
         refreshToggle();
         return;
@@ -383,7 +507,7 @@
       try {
         const response = await chrome.runtime.sendMessage({
           type: 'GENERATE_REPLY',
-          payload: { character, messages, backendUrl },
+          payload: { character, messages, backendUrl, followUp: !!(opts && opts.followUp) },
         });
         if (await discardIfStale()) return; // STOP: late reply discard, kuch insert nahi
         if (response && response.ok && response.data && response.data.reply) {
@@ -399,9 +523,24 @@
       }
     }
 
+    // Composer ka text: TEXTAREA/INPUT mein .value hota hai (innerText hamesha
+    // khaali deta hai!), contenteditable mein innerText. Ye guard owner-typing
+    // safety ka base hai - galat read ka matlab owner ka text AI ke saath send.
+    function composerText(composer) {
+      if (!composer) return '';
+      const isField = composer.tagName === 'TEXTAREA' || composer.tagName === 'INPUT';
+      return (isField ? (composer.value || '') : (composer.innerText || '')).trim();
+    }
+    function composerHasText(composer) {
+      return composerText(composer) !== '';
+    }
+
     // RACE SAFETY: reply sirf wahi chat paaye jahan se request gayi thi.
     // Auto mode mein wahi reply apne aap send bhi ho sakti hai (guards ke saath).
     async function deliverSuggestion(chatKey, text) {
+      // Stop all generation ke BAAD aaya ho to response DISCARD - na send, na
+      // draft insert (late-response safety: rukne ke baad kuch nahi aana chahiye).
+      if (await isGlobalStopped()) return;
       if (getChatKey() !== chatKey) {
         pendingSuggestions[chatKey] = text;
         return;
@@ -410,7 +549,7 @@
         await autoSend(chatKey, text);
         return;
       }
-      insertSuggestion(text, chatKey);
+      await insertSuggestion(text, chatKey);
     }
 
     // AUTO SEND: sirf consent-active chat, sirf khaali composer, sirf jab
@@ -421,32 +560,71 @@
       const st = await getChatState(chatKey);
       if (!st || st.state !== 'active') return; // consent wapas/off -> send nahi
       const composer = getComposer();
-      if (!composer || (composer.innerText || '').trim() !== '') {
-        insertSuggestion(text, chatKey); // user type kar raha hai - draft only
+      if (!composer || composerHasText(composer)) {
+        await insertSuggestion(text, chatKey); // user type kar raha hai - draft only
         return;
       }
-      const sendBtn = config.sendSelector ? document.querySelector(config.sendSelector) : null;
+      const sendBtn = findSendButton(composer);
       if (!sendBtn) {
         showBanner('Auto-send ka button nahi mila - draft yahan hai, khud bhejo:', text);
         return;
       }
       composer.focus();
-      document.execCommand('insertText', false, text);
-      sendBtn.click();
-      showBanner('Auto-reply bhej di gayi (consent-active chat). Rokna ho to AI off ya Stop all.', null);
+      engineInserting = true;
+      try { document.execCommand('insertText', false, text); } finally { setTimeout(() => { engineInserting = false; }, 0); }
+      // Controlled frameworks (React) apna state async update karte hain, isliye
+      // send button insert ke turant baad disabled reh sakta hai. Thoda ruk kar
+      // button dobara dhoondo; enabled na mile to draft composer mein hi chhodo.
+      await new Promise((r) => setTimeout(r, 150));
+      // CLICK SE PEHLE full re-check: is chhoti window mein Stop all / consent off /
+      // chat switch / owner typing ho sakta hai - kuch bhi badla to send NAHI.
+      const stillOk = !(await isGlobalStopped())
+        && getChatKey() === chatKey
+        && (await getChatState(chatKey))?.state === 'active'
+        && composerText(composer) === text.trim(); // composer mein SIRF wahi AI text ho (owner ne beech mein type nahi kiya)
+      const btn = stillOk ? findSendButton(composer) : null;
+      if (btn && !btn.disabled) {
+        btn.click();
+        showBanner('Auto-reply bhej di gayi (consent-active chat). Rokna ho to AI off ya Stop all.', null);
+      } else {
+        showBanner('Auto-send ab safe nahi (ruk gayi/state badli/button inactive) - draft composer mein hai, padho aur KHUD bhejo.', null);
+      }
     }
 
     function getComposer() {
       return document.querySelector(config.composerSelector);
     }
 
-    function insertSuggestion(text, chatKey) {
+    function findSendButton(composer) {
+      if (!config.sendSelector) return null;
+      // Send button composer ke container ke ANDAR dhoondo. Page par same classes
+      // wale doosre buttons (Download/Connect/Load...) ho sakte hain - poori
+      // document-wide query un par galat click kar sakti hai (Orbix live bug).
+      const scopes = [];
+      if (composer) {
+        const form = composer.closest('form');
+        if (form) scopes.push(form);
+        if (composer.parentElement) scopes.push(composer.parentElement);
+      }
+      if (config.footerSelector) {
+        const f = document.querySelector(config.footerSelector);
+        if (f) scopes.push(f);
+      }
+      for (const sc of scopes) {
+        const b = sc.querySelector(config.sendSelector);
+        if (b) return b;
+      }
+      return document.querySelector(config.sendSelector);
+    }
+
+    async function insertSuggestion(text, chatKey) {
+      if (await isGlobalStopped()) return; // rukne ke baad draft bhi nahi
       if (chatKey && getChatKey() !== chatKey) {
         pendingSuggestions[chatKey] = text;
         return;
       }
       const composer = getComposer();
-      if (composer && (composer.innerText || '').trim() === '') {
+      if (composer && !composerHasText(composer)) {
         composer.focus();
         document.execCommand('insertText', false, text);
         showBanner('Draft ready. Padho, edit karo, phir KHUD send dabao.', text);

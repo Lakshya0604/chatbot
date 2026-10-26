@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!-- mock-whatsapp.html - WhatsApp Web ka DUMMY mock. Sirf local E2E test ke
+     liye. Real WhatsApp ka copy nahi - sirf wahi DOM shape jo whatsapp adapter
+     ke selectors expect karte hain (#main, message-in/out, selectable-text,
+     footer contenteditable, data-tab=11 send). -->
+<html><head><meta charset="utf-8"><title>Mock WhatsApp</title>
+<style>
+  body { font-family: sans-serif; margin: 0; }
+  #app { height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; display: flex; flex-direction: column; }
+  #main header { padding: 10px; border-bottom: 1px solid #ccc; font-weight: bold; background: #f0f2f5; }
+  #thread { flex: 1; padding: 10px; overflow-y: auto; background: #efeae2; }
+  .message-in, .message-out { max-width: 60%; margin: 6px 0; padding: 8px; border-radius: 8px; background: #fff; }
+  .message-out { margin-left: auto; background: #d9fdd3; }
+  #main footer { padding: 10px; border-top: 1px solid #ccc; display: flex; gap: 8px; background: #f0f2f5; }
+  #main footer div[contenteditable] { flex: 1; border: 1px solid #bbb; border-radius: 6px; padding: 8px; min-height: 20px; background: #fff; }
+</style></head><body>
+  <div id="app">
+    <div id="main">
+      <header><span dir="auto">Dummy Dost (mock)</span></header>
+      <div id="thread"></div>
+      <footer>
+        <div contenteditable="true" role="textbox"></div>
+        <button data-tab="11" type="button" style="display:none">Send</button>
+      </footer>
+    </div>
+  </div>
+<script>
+  const thread = document.getElementById('thread');
+  const composer = document.querySelector('#main footer div[contenteditable]');
+  const sendBtn = document.querySelector('#main footer button[data-tab="11"]');
+  window.sentLog = [];
+  function addMsg(text, out) {
+    const d = document.createElement('div');
+    d.className = out ? 'message-out' : 'message-in';
+    const s = document.createElement('span');
+    s.className = 'selectable-text';
+    s.textContent = text;
+    d.appendChild(s);
+    thread.appendChild(d);
+  }
+  // WA jaisa: text aane par mic -> send button
+  composer.addEventListener('input', () => {
+    sendBtn.style.display = composer.innerText.trim() ? 'block' : 'none';
+  });
+  sendBtn.addEventListener('click', () => {
+    const t = composer.innerText.trim();
+    if (!t) return;
+    window.sentLog.push(t);
+    addMsg(t, true);
+    composer.innerText = '';
+    sendBtn.style.display = 'none';
+  });
+  // test hook: saamne wale ka naya message
+  window.mockIncoming = (text) => addMsg(text, false);
+  // seed history
+  addMsg('chal bhai, mock whatsapp ready hai', false);
+  addMsg('haan dekh raha hoon', true);
+</script>
+</body></html>

@@ -99,6 +99,40 @@
     <button id="preview" type="button">Preview reply</button>
     <div id="previewOut" class="preview-out"></div>
 
+
+    <h2>Form auto-fill details (asli facts, review-first)</h2>
+    <p class="hint">Ye details right-click &gt; "Form auto-fill" par web forms mein bharti hain. Sirf jo bharoge wahi use hoga; kuch invent nahi hota. Password/OTP/card/ID fields kabhi auto-fill nahi hote, aur Submit hamesha tum khud dabate ho. Ye CHARACTER ka fictional data nahi hai - forms ke liye asli details.</p>
+    <div class="grid">
+      <label>Full name <input id="ff_name" type="text" /></label>
+      <label>First name <input id="ff_firstName" type="text" /></label>
+      <label>Last name <input id="ff_lastName" type="text" /></label>
+      <label>Email <input id="ff_email" type="text" /></label>
+      <label>Phone <input id="ff_phone" type="text" /></label>
+      <label>Address line 1 <input id="ff_address1" type="text" /></label>
+      <label>Address line 2 <input id="ff_address2" type="text" /></label>
+      <label>City <input id="ff_city" type="text" /></label>
+      <label>State <input id="ff_state" type="text" /></label>
+      <label>PIN/ZIP <input id="ff_zip" type="text" /></label>
+      <label>Country <input id="ff_country" type="text" /></label>
+      <label>Date of birth <input id="ff_dob" type="text" placeholder="dd-mm-yyyy" /></label>
+      <label>LinkedIn <input id="ff_linkedin" type="text" /></label>
+      <label>GitHub <input id="ff_github" type="text" /></label>
+      <label>Portfolio/website <input id="ff_portfolio" type="text" /></label>
+      <label>Company <input id="ff_company" type="text" /></label>
+      <label>College <input id="ff_college" type="text" /></label>
+      <label>Degree <input id="ff_degree" type="text" /></label>
+      <label>Graduation year <input id="ff_graduationYear" type="text" /></label>
+      <label>Experience (years) <input id="ff_experienceYears" type="text" /></label>
+      <label>Current CTC <input id="ff_currentCtc" type="text" /></label>
+      <label>Expected CTC <input id="ff_expectedCtc" type="text" /></label>
+      <label>Notice period <input id="ff_noticePeriod" type="text" /></label>
+    </div>
+    <label>Cover note / About you (lamba text)
+      <textarea id="ff_coverNote" rows="3"></textarea>
+    </label>
+    <button id="saveForm" type="button">Save form details</button>
+    <span id="formStatus"></span>
+
     <h2>Emergency stop</h2>
     <p class="hint">Stop all = sab chats mein AI turant band, queued/in-flight reply bhi cancel. Resume sirf tum kisi chat mein dobara on karoge tab.</p>
     <button id="stopAll" type="button" class="danger">Stop all chats</button>

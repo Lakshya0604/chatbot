@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Character Chatbot E2E TEST BUILD (mock whatsapp only)",
+  "version": "0.5.0",
+  "description": "TEST BUILD: whatsapp adapter ko 127.0.0.1 ke mock WhatsApp page par point karta hai. Production manifest alag hai (web.whatsapp.com).",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*",
+    "http://127.0.0.1:8788/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:8788/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/whatsapp.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

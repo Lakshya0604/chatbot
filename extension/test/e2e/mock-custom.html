@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!-- mock-custom.html - ek GENERIC dummy chat site ("ChatVerse"). Telegram mock se
+     JANBOOJH ke alag DOM/classes, taaki CUSTOM picker ka generic derivation hi
+     prove ho (koi hardcoded adapter nahi). Sirf local E2E/demo ke liye. -->
+<html><head><meta charset="utf-8"><title>ChatVerse (dummy site)</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #f0f2f5; }
+  .chat-title { padding: 14px; background: #3b4a54; color: #fff; font-size: 18px; font-weight: bold; }
+  .msglist { padding: 16px; height: 60vh; overflow-y: auto; }
+  .msg { max-width: 55%; margin: 8px 0; padding: 10px 14px; border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+  .msg.out { margin-left: auto; background: #d9fdd3; }
+  .composer-wrap { display: flex; gap: 8px; padding: 12px; background: #e9edef; }
+  .composer { flex: 1; background: #fff; border-radius: 8px; padding: 10px; min-height: 22px; }
+  .send-btn { background: #00a884; color: #fff; border: 0; border-radius: 8px; padding: 10px 22px; font-size: 15px; cursor: pointer; }
+</style></head><body>
+  <div class="chat-title">Rohan (dummy)</div>
+  <div class="msglist">
+    <div class="msg in">oye kya haal hai?</div>
+    <div class="msg out">badhiya yaar, tu bata</div>
+  </div>
+  <div class="composer-wrap">
+    <div class="composer" contenteditable="true"></div>
+    <button class="send-btn" type="button">Bhejo</button>
+  </div>
+<script>
+  const list = document.querySelector('.msglist');
+  const composer = document.querySelector('.composer');
+  function addMsg(text, out) {
+    const d = document.createElement('div');
+    d.className = 'msg' + (out ? ' out' : ' in');
+    d.textContent = text;
+    list.appendChild(d);
+    list.scrollTop = list.scrollHeight;
+  }
+  document.querySelector('.send-btn').addEventListener('click', () => {
+    const t = (composer.innerText || '').trim();
+    if (!t) return;
+    composer.innerText = '';
+    addMsg(t, true);
+  });
+  window.__mock = { receive: (text) => addMsg(text, false) };
+</script></body></html>

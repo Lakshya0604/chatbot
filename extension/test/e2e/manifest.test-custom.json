@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Character Chatbot E2E TEST BUILD (mock custom site)",
+  "version": "0.5.0",
+  "description": "TEST BUILD: custom mode ko 127.0.0.1 ke dummy generic chat page par point karta hai. Production manifest alag hai.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["http://127.0.0.1:8787/*", "http://localhost:8787/*"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1:8789/*"],
+      "js": ["content/engine.js", "content/adapters/custom-utils.js", "content/adapters/custom.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

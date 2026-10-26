@@ -82,6 +82,17 @@ function makeWorld({ sendMessage, initialHtml }, t) {
 
 const composerOf = (w) => w.document.querySelector('#editable-message-text');
 
+async function primeHistory(window) {
+  // Engine first-bind par visible history BASELINE karta hai (bina trigger).
+  // Fixture mein history pre-rendered hai, isliye no-op mutation se prime karo.
+  const msgs = window.document.querySelector('.messages-list');
+  const tmp = window.document.createElement('span');
+  msgs.appendChild(tmp);
+  tmp.remove();
+  await sleep(BATCH + 120);
+}
+
+
 async function enableChat(window) {
   await sleep(60);
   const btn = window.document.getElementById('cc-toggle-btn');
@@ -109,6 +120,7 @@ test('COPY-TEXT route: A-shaped DOM se text sahi extract hota hai, roles aur ord
     ]),
   }, t);
   await enableChat(window);
+  await primeHistory(window);
 
   appendIncoming(window, '555', 12, 'naya message aa gaya');
   await sleep(250);
@@ -136,6 +148,7 @@ test('STOP GATE A-shaped DOM par bhi kaam karta hai (stop text AI ko nahi jaata)
     initialHtml: chatHtml('555', [{ id: 10, own: false, text: 'hi' }]),
   }, t);
   await enableChat(window);
+  await primeHistory(window);
   appendIncoming(window, '555', 11, 'please stop');
   await sleep(250);
   assert.equal(calls.length, 0, 'stop message extract hua par AI ko NAHI gaya');

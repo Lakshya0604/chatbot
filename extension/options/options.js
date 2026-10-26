@@ -8,6 +8,13 @@ const FIELDS = [
   'topics', 'boundaries', 'styleExamples', 'backendUrl', 'authToken',
 ];
 const CHECKBOXES = ['playful', 'flirting'];
+const FORM_FIELDS = [
+  'name', 'firstName', 'lastName', 'email', 'phone',
+  'address1', 'address2', 'city', 'state', 'zip', 'country', 'dob',
+  'linkedin', 'github', 'portfolio', 'company', 'college', 'degree',
+  'graduationYear', 'experienceYears', 'currentCtc', 'expectedCtc',
+  'noticePeriod', 'coverNote',
+];
 
 function loadSettings() {
   chrome.storage.sync.get(['character', 'backendUrl', 'authToken'], (result) => {
@@ -43,6 +50,32 @@ function loadSettings() {
   });
 }
 
+function loadFormProfile() {
+  chrome.storage.sync.get(['formProfile'], (result) => {
+    const profile = result.formProfile || {};
+    FORM_FIELDS.forEach((field) => {
+      const el = document.getElementById('ff_' + field);
+      if (el) el.value = profile[field] || '';
+    });
+  });
+}
+
+function saveFormProfile() {
+  const profile = {};
+  FORM_FIELDS.forEach((field) => {
+    const el = document.getElementById('ff_' + field);
+    const v = el ? el.value.trim() : '';
+    if (v) profile[field] = v; // khaali fields store hi nahi - kuch invent nahi hoga
+  });
+  chrome.storage.sync.set({ formProfile: profile }, () => {
+    const status = document.getElementById('formStatus');
+    status.textContent = ' Form details saved.';
+    setTimeout(() => { status.textContent = ''; }, 2000);
+  });
+}
+
+document.getElementById('saveForm').addEventListener('click', saveFormProfile);
+
 function saveSettings() {
   const character = {};
   FIELDS.forEach((field) => {
@@ -68,6 +101,7 @@ function saveSettings() {
 
 document.getElementById('save').addEventListener('click', saveSettings);
 loadSettings();
+loadFormProfile();
 
 
 // ---------- Preview: current settings par dummy reply ----------

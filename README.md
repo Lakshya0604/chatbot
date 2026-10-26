@@ -1,6 +1,9 @@
 # Character Chatbot - local AI reply engine
 
-> **Status (25 Oct 2026): Telegram Web adapter EXPERIMENTAL.**
+> **Status (26 Oct 2026): Telegram Web adapter EXPERIMENTAL; WhatsApp Web
+> adapter NAYA - EXPERIMENTAL, mock-tested, live unverified, ban-risk ke saath
+> (neeche "WhatsApp Web self-test" padho). CUSTOM mode + form auto-fill
+> unit-tested. Kisi bhi site par bina test ke "working" claim nahi.**
 > Engine + settings + backend + consent-gated suggestions AUR per-chat
 > auto-replies ban chuke hain, dummy mock Telegram page par end-to-end tested
 > (real Chromium, `extension/test/e2e/`). Adapter **live Telegram par verify
@@ -18,10 +21,49 @@ hai - user type kar raha ho, stop signal aaye, ya identity/state doubt ho to sen
 Recipient consent gate hamesha mandatory hai; "ruk jao"/"stop" sunte hi chat permanently
 band (fresh consent ke bina wapas nahi). Koi perfect-human claim nahi.
 
+## Quick start (copy-ready) - 26 Oct 2026
+
+**Zaroori cheezein:** ek laptop/PC (backend sirf 127.0.0.1 par, tumhari machine par
+chalta hai - phone par nahi), Node.js 18+ (https://nodejs.org), Chrome.
+
+```bash
+# 1) Is File page se chatbot-package.zip download karo aur unzip karo
+# 2) Backend setup + start (ek terminal mein chalta rahega)
+cd chatbot/backend
+npm install
+cp .env.example .env
+nano .env          # ya koi editor - neeche kya bharna hai likha hai
+npm start          # "backend chal raha hai: http://127.0.0.1:8787" dikhna chahiye
+```
+
+`.env` mein yahi 4 cheezein matter karti hain:
+- `AI_API_KEY=` - **ye credential tumhe khud bharna hai** (repo koi key bundle
+  nahi karta): free key https://console.groq.com/keys se banao. Tumhari project
+  key Instinct vault mein bhi saved hai - chaaho to wahi use karo, lekin use
+  chat/PDF mein paste mat karo; khud copy karke .env mein daalo. Key ke bina
+  asli AI replies nahi chalengi (flow test ke liye `AI_MOCK=true` kaafi hai).
+- `AI_MOCK=false` - asli AI ke liye (fake test replies ke liye true rakho).
+- `AUTH_TOKEN=<lambi random string>` - banao:
+  `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`
+- `AI_MODEL=openai/gpt-oss-120b` - Groq par verified; default theek hai.
+
+```bash
+# 3) Extension load (Chrome mein)
+#    chrome://extensions kholo -> Developer mode ON (top-right) ->
+#    "Load unpacked" -> unzip kiye folder mein se chatbot/extension SELECT karo
+# 4) Extension Options (puzzle icon -> Character Chatbot -> Options):
+#    Backend URL: http://127.0.0.1:8787
+#    Auth token: <.env ka AUTH_TOKEN wahi string>
+#    Character settings bharo -> Save -> "Preview" se dummy reply test karo
+```
+
+Ab Telegram ke liye neeche "Live self-check" ya WhatsApp ke liye "WhatsApp Web
+self-test" section follow karo. Backend band = extension kuch nahi karegi.
+
 ## Architecture (jo bana hai)
 
 ```
-chat website  <--(adapter: telegram.js EXPERIMENTAL)-->  extension
+chat website  <--(adapter: telegram.js / whatsapp.js, dono EXPERIMENTAL)-->  extension
                                                              |
                                                 background.js (bridge, token yahin rehta hai)
                                                              |
@@ -42,10 +84,27 @@ chat website  <--(adapter: telegram.js EXPERIMENTAL)-->  extension
   best-known selectors, LIVE UNVERIFIED) + consent-active non-open chats ka chat-list
   watcher + auto-open (READ-RECEIPT caveat: auto-open Telegram ko read mark kara
   sakta hai).
-- `extension/test/` - engine ke jsdom fixture tests: **21/21 pass** (generic fake DOM;
-  kisi platform ke selectors ka proof NAHI) + `e2e/` mein mock Telegram page par
-  Playwright E2E (consent flow, suggestion, auto-send, non-open auto-open, stop
-  gates - mock DOM ka proof, live Telegram ka NAHI).
+- `extension/content/adapters/custom.js` + `custom-utils.js` - **CUSTOM mode
+  (EXPERIMENTAL)**: extension toolbar button dabao -> picker se page par khud
+  message bubble, apni outgoing message, typing box, (optional) send button aur
+  (optional) chat title select karo -> profile sirf is device par save hoti hai
+  (us origin ke liye) -> us site ki selected chat mein wahi consent-gated engine
+  chalta hai. Toggle/banners ke liye floating panel. v1 sirf OPEN conversation
+  dekhta hai (chat-list auto-open site-specific adapters tak hi). Hashed-class
+  sites par selectors toot sakte hain (picker warning deta hai; dobara select
+  karo). Canvas/cross-origin iframe/shadow-DOM chats par kaam nahi karega.
+  Kisi site par kaam karne ka promise nahi - jo site test pass kare wahi "working".
+- `extension/content/formfill.js` - **form auto-fill (review-first)**: right-click
+  context menu -> "Form auto-fill". Sirf settings mein tumne jo `formProfile`
+  details di hain wahi bharta hai (naam, email, phone, address, links, CTC,
+  notice period...); kuch invent nahi karta. Password/OTP/card/PAN/Aadhaar jaise
+  sensitive fields SKIP. Fill ke baad green highlight + review banner;
+  **Submit KABHI nahi dabata** - review karke tum khud submit karte ho.
+- `extension/test/` - engine ke jsdom fixture tests + custom-utils + formfill
+  tests: **32/32 pass** (generic fake DOM; kisi platform ke selectors ka proof
+  NAHI) + `e2e/` mein mock Telegram page par Playwright E2E (consent flow,
+  suggestion, auto-send, non-open auto-open, stop gates - mock DOM ka proof,
+  live Telegram ka NAHI).
 - `backend/src/server.js` - POST /reply; token auth (401), origin guard (403),
   rate limit (429), loop guard, memory wiring (MONGODB_URI set ho tabhi).
 - `backend/src/prompt.js` - character se system prompt: boundaries, language+script
@@ -134,14 +193,51 @@ kabhi bhi on karne se pehle uski explicit consent lena mandatory hai.
 | Platform | Status | Kyun |
 |---|---|---|
 | Telegram Web | **Adapter shipped - EXPERIMENTAL** | Mock page par E2E tested; live Telegram par selectors/behavior unverified. Consent gate mandatory: recipient ke explicit haan ke bina kuch process/send nahi. Auto-open read-receipt bhej sakta hai. Terms review: telegram.org/tos/content-licensing, core.telegram.org/api/terms. |
-| WhatsApp | **Removed** | Personal-account auto-messaging ban-risk; user ke request par hata diya. |
+| WhatsApp Web | **Adapter shipped - EXPERIMENTAL (26 Oct)** | Mock WhatsApp page par E2E tested (consent, draft, AUTO send, STOP ALL pass); live WhatsApp Web par selectors/behavior UNVERIFIED. Meta/WhatsApp ToS unauthorized automation restrict karte hain - **account ban/mute ka real risk hai**, koi undetectability ya safety guarantee NAHI. Sirf open chat scope; kisi chat mein bina 2-click consent ke kuch nahi hota. Pehle apne aap/dummy se test karo. |
 | Instagram DMs | **Researched - koi build nahi, user decision pending** | Do routes: (A) Official Instagram Send API - sirf professional (Business/Creator) account, `instagram_business_manage_messages` permission, recipient ka pehle message aana zaroori (Meta ka official Postman doc: postman.com/meta/instagram). Personal account par ye API nahi chalti. (B) telegram.js jaisa browser adapter - technically possible, lekin Meta ToS automated access restrict karta hai (logged-in bhi) aur enforcement risk hai; ye user ka explicit decision hoga. |
 | Facebook Messenger | **Researched - koi build nahi, user decision pending** | (A) Official Messenger Platform API - Facebook Page + `pages_messaging` permission chahiye (Meta official Postman doc: postman.com/meta/messenger-platform-api); personal Messenger ke liye nahi. (B) Browser adapter - same ToS/enforcement exposure as Instagram. |
 | Threads | **Researched - abhi koi API route exist nahi karta** | Meta ke official Threads API mein koi DM endpoint/permission nahi - sirf posts/replies/insights (postman.com/meta/threads). Web DMs abhi rollout mein hain (Threads boss Connor Hayes ka official post, threads.com/@conno_r/post/DX9yHGTDu7h). Sirf browser route bachta hai - undocumented DOM + same ToS exposure. |
 
-## Verified kya hai (aur kya nahi) - 25 Oct 2026
+## WhatsApp Web self-test (EXPERIMENTAL - apne risk par)
 
-- Backend 17/17, extension 21/21 fixture tests pass.
+User ke explicit request par WhatsApp adapter banaya gaya hai. Ye live WhatsApp
+par UNVERIFIED hai aur Meta/WhatsApp unauthorized automation par account
+ban/mute kar sakte hain. Agar test karna hai:
+
+1. Backend chalu rakho (neeche "Chalane ka tareeqa") - bina backend ke kuch nahi hoga.
+2. chrome://extensions -> Load unpacked -> `extension/` (is build mein
+   web.whatsapp.com content script pehle se shaamil hai).
+3. web.whatsapp.com kholo aur EK chat kholo (pehle koi low-stakes chat ya apna
+   doosra number). Adapter sirf KHULI chat par kaam karta hai.
+4. Header mein AI toggle dabao -> 2-step consent: pehle saamne wale se explicit
+   haan lo, tabhi confirm karo. Bina consent ke extension kuch process/send
+   nahi karti.
+5. Default SUGGEST mode: naye incoming ka draft composer mein aayega - padho,
+   edit karo, KHUD send dabao. AUTO mode sirf tab on karo jab suggest flow
+   stable lage; AUTO mein bhi composer mein text ho, stop-word aaye, ya state
+   doubt ho to send nahi hota.
+6. STOP ALL = emergency brake (har chat ke liye ek click mein sab ruk jata hai).
+7. Agar selectors toote (draft na aaye / banner error) ya WhatsApp koi warning
+   dikhaye, turant AI off karo. Ban/warning ki zimmedari user ki hai - ye
+   tool koi guarantee nahi deta.
+
+## Verified kya hai (aur kya nahi) - 26 Oct 2026
+
+- Backend 17/17, extension 38/38 tests pass (26 Oct, WhatsApp build ke saath).
+- Mock WhatsApp E2E (real Chromium + extension + backend mock mode): 2-step
+  consent, incoming par draft suggestion (auto-send NAHI), AUTO mode par 1
+  auto-send, thread update, composer clear, STOP ALL block - sab pass
+  (`extension/test/e2e/e2e-whatsapp.cjs`). Mock DOM ka proof hai, live
+  WhatsApp Web ka NAHI.
+- Orbix (dummy chat site, dummy account) live proofs 26 Oct re-verified:
+  picker/profile (2a), active-AUTO first-bind par ZERO unsolicited draft/send,
+  naye incoming par EXACTLY 1 auto-send, reload+reopen par ZERO replay (2j) -
+  server-side message counts se audit ke saath. Dummy site ka proof hai.
+- Engine bugfix (26 Oct): activation/stop snapshot ab first-bind priming ka
+  baseline banata hai, LEKIN sirf jab messages actually render ho chuke hon -
+  warna hash-router sites (ek chatKey sab screens ka) par home-screen snapshot
+  priming kha jaata aur khuli chat ki history trigger ban jaati (2j regression
+  se pakda gaya, fix ke baad poori matrix green).
 - Mock Telegram E2E (real Chromium + extension + backend mock mode): consent flow,
   suggestion insert, AUTO send, non-open chat auto-open + suggestion, stop-word
   gate, STOP ALL - sab pass. Mock DOM ka proof hai, live Telegram ka NAHI.

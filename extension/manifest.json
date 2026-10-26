@@ -1,10 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Character Chatbot - local AI reply assistant",
-  "version": "0.4.0",
-  "description": "Local character-based AI reply engine: consent-gated suggestions aur auto-replies. Telegram Web adapter EXPERIMENTAL hai (dummy mock par tested, live Telegram par unverified). Sirf 127.0.0.1 backend se baat karta hai.",
+  "version": "0.5.0",
+  "description": "Local character-based AI reply engine: consent-gated suggestions aur auto-replies, user-selected CUSTOM chat mode (kisi bhi allowed site par user khud chat elements select karta hai) aur form auto-fill (review-first, submit kabhi nahi). Telegram aur WhatsApp adapters EXPERIMENTAL (dummy mock tested, live unverified). Sirf 127.0.0.1 backend se baat karta hai.",
   "permissions": [
-    "storage"
+    "storage",
+    "scripting",
+    "activeTab",
+    "contextMenus"
   ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
@@ -24,6 +27,19 @@
         "content/adapters/telegram.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/whatsapp.js"
+      ],
+      "run_at": "document_idle"
     }
-  ]
+  ],
+  "action": {
+    "default_title": "Character Chatbot: is site par apni chat select karo"
+  }
 }

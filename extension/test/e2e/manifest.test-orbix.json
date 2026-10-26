@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Character Chatbot ORBIX TEST BUILD (production code, orbix origin allowed)",
+  "version": "0.5.0",
+  "description": "TEST BUILD: production v0.5.0 code; sirf orbix-video-ly.web.app origin allowed for bounded own-bot test.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*",
+    "https://orbix-video-ly.web.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.telegram.org/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/telegram.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://orbix-video-ly.web.app/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/custom-utils.js",
+        "content/adapters/custom.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Character Chatbot: is site par apni chat select karo"
+  }
+}
