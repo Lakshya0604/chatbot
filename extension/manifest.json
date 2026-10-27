@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Character Chatbot - local AI reply assistant",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "description": "Local character-based AI reply engine: consent-gated suggestions aur auto-replies, user-selected CUSTOM chat mode (kisi bhi allowed site par user khud chat elements select karta hai) aur form auto-fill (review-first, submit kabhi nahi). Telegram aur WhatsApp adapters EXPERIMENTAL (dummy mock tested, live unverified). Sirf 127.0.0.1 backend se baat karta hai.",
   "permissions": [
     "storage",
@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
-    "http://localhost:8787/*"
+    "http://localhost:8787/*",
+    "https://*.onrender.com/*"
   ],
   "background": {
     "service_worker": "background.js"

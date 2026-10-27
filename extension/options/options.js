@@ -149,3 +149,31 @@ document.getElementById('stopAll').addEventListener('click', () => {
     s.textContent = ' Sab chats band. Dobara on karne tak koi AI request nahi jayegi.';
   });
 });
+
+
+// ---------- Pairing: code paste -> device token (token sirf is device ke local storage mein) ----------
+document.getElementById('pairBtn').addEventListener('click', async () => {
+  const st = document.getElementById('pairStatus');
+  const code = document.getElementById('pairCode').value.trim();
+  try {
+    const parts = code.split('.');
+    if (parts[0] !== 'cc1p' || parts.length !== 3) throw new Error('ye pairing code nahi lagta');
+    const meta = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    const url = String(meta.u || '').replace(/\/$/, '');
+    if (!/^https:\/\/[a-z0-9.-]+\.onrender\.com$/i.test(url)) throw new Error('code mein valid hosted URL nahi');
+    st.textContent = 'Server jaag raha hai, 1-2 minute tak lag sakta hai...';
+    const res = await fetch(url + '/pair/redeem', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.token) throw new Error(data.error || ('server ne mana kiya (' + res.status + ')'));
+    await chrome.storage.local.set({ authToken: data.token });
+    await chrome.storage.sync.set({ backendUrl: url });
+    document.getElementById('backendUrl').value = url;
+    document.getElementById('authToken').value = data.token;
+    document.getElementById('pairCode').value = '';
+    st.textContent = 'Connected: ' + new URL(url).host + '. Ab character save karke use kar sakte ho.';
+  } catch (e) {
+    st.textContent = 'Connect nahi hua: ' + (e && e.message ? e.message : e);
+  }
+});

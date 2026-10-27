@@ -10,7 +10,7 @@
 // scripts extension storage tak pahunch hi nahi sakte.
 
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8787';
-const REQUEST_TIMEOUT_MS = 45000; // AI reply der se aaye to hamesha ke liye hang na ho
+const REQUEST_TIMEOUT_MS = 120000; // hosted free server so ke jaagne mein der laga sakta hai // AI reply der se aaye to hamesha ke liye hang na ho
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!request || request.type !== 'GENERATE_REPLY') return false;
@@ -115,3 +115,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     chrome.tabs.sendMessage(tab.id, { type: 'CC_FILL_FORM' }, () => void chrome.runtime.lastError);
   } catch (e) { /* restricted page */ }
 });
+
+// Hosted backend so gaya ho to pehle se jaga do (sirf /health, koi chat data nahi).
+function warmBackend() {
+  chrome.storage.sync.get('backendUrl', (r) => {
+    if (r.backendUrl && /^https:/.test(r.backendUrl)) fetch(r.backendUrl.replace(/\/$/, '') + '/health').catch(() => {});
+  });
+}
+chrome.runtime.onStartup.addListener(warmBackend);
