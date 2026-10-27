@@ -35,6 +35,21 @@
     return String(sel).split(/[\s>+~.#[\]:]+/).some(isFragileClass);
   }
 
+  // Attribute selector; value mein per-chat id (uuid / digits wala token) ho to sirf stable PREFIX
+  // par ^= use karo (ChatGPT: aria-label="Conversation chat-<uuid>"). Prefix na bane to null.
+  function attrSel(tag, a, v) {
+    const toks = String(v).split(/\s+/);
+    const idLike = (t) => /[0-9a-f]{8}-[0-9a-f]{4}/i.test(t) || (t.match(/[0-9]/g) || []).length >= 4;
+    const i = toks.findIndex(idLike);
+    const q = (s) => s.replace(/"/g, '\\"');
+    if (i < 0) return a === 'aria-label' && String(v).length >= 8 ? tag + '[' + a + '^="' + q(v) + '"]' : tag + '[' + a + '="' + q(v) + '"]'; // aria-label prefix: site baad mein id jod sakti hai
+    const prefix = toks.slice(0, i).join(' ');
+    if (prefix.length < 4) return null;
+    return tag + '[' + a + '^="' + q(prefix) + '"]';
+  }
+
+  const ROW_ATTRS = ['data-message-author-role', 'data-testid', 'aria-label', 'role', 'data-type', 'data-direction'];
+
   function stableClasses(el) {
     return Array.from(el.classList || []).filter((c) => c && !isFragileClass(c));
   }
@@ -58,22 +73,39 @@
     let best = null;
     let bestKey = null; // [parents ASC, count DESC, depth DESC(outer)]
     let node = el;
-    for (let depth = 0; depth <= 5 && node && node !== doc.body && node.nodeType === 1; depth++) {
+    for (let depth = 0; depth <= 14 && node && node !== doc.body && node.nodeType === 1; depth++) {
       const classes = stableClasses(node);
+      const cands = [];
       for (let n = 1; n <= Math.min(classes.length, 3); n++) {
-        const sel = node.tagName.toLowerCase() + '.' + classes.slice(0, n).map(esc).join('.');
+        cands.push(node.tagName.toLowerCase() + '.' + classes.slice(0, n).map(esc).join('.'));
+      }
+      // Stable attribute hooks (aria-label / data-testid / role ...) - hashed-class sites par
+      // yahi bachte hain. Value ko hi stable maante hain agar fragile-looking na ho.
+      ROW_ATTRS.forEach((a) => {
+        const v = node.getAttribute && node.getAttribute(a);
+        if (v && v.length <= 80) { const s = attrSel(node.tagName.toLowerCase(), a, v); if (s) cands.push(s); }
+      });
+      // Parent ke stable hook ke andar ke direct children: 'ol[aria-label="Conversation"] > li'
+      const par = node.parentElement;
+      if (par && par !== doc.body) {
+        const pSel = deriveElementSelector(par, doc);
+        if (pSel && !isFragileSelector(pSel) && !/:nth-child/.test(pSel)) cands.push(pSel + ' > ' + node.tagName.toLowerCase());
+      }
+      for (const sel of cands) {
+        const tier = /^[a-z0-9]+\./.test(sel) ? 0 : 1; // attribute/parent hook > class
         let els;
         try { els = doc.querySelectorAll(sel); } catch (e) { continue; }
         if (!els.length) continue;
+        if (isFragileSelector(sel.replace(/\^?="[^"]*"\]/g, ']'))) continue;
         const parents = new Set();
         els.forEach((m) => parents.add(m.parentElement));
         // Row pattern ka signal: EK container ke kitne siblings (parents kam,
         // count zyada). Barabar ho to OUTER (gehri) row prefer - inner repeated
         // content (markdown blocks) rows nahi hota.
-        const key = [-parents.size, els.length, depth];
-        if (!bestKey || key[0] > bestKey[0] || (key[0] === bestKey[0] && (key[1] > bestKey[1] || (key[1] === bestKey[1] && key[2] > bestKey[2])))) {
-          best = sel; bestKey = key;
-        }
+        const key = [-parents.size, els.length, tier, depth];
+        let better = !bestKey;
+        if (bestKey) for (let i = 0; i < 4; i++) { if (key[i] !== bestKey[i]) { better = key[i] > bestKey[i]; break; } }
+        if (better) { best = sel; bestKey = key; }
       }
       node = node.parentElement;
     }
@@ -98,11 +130,12 @@
       return '#' + esc(el.id);
     }
     // Useful attributes pehle try karo (contenteditable, role, data-*)
-    const attrs = ['contenteditable', 'role', 'aria-label', 'data-tab', 'data-testid', 'data-icon'];
+    const attrs = ['contenteditable', 'role', 'aria-label', 'name', 'data-tab', 'data-testid', 'data-icon'];
     for (const a of attrs) {
       const v = el.getAttribute && el.getAttribute(a);
       if (!v) continue;
-      const sel = el.tagName.toLowerCase() + '[' + a + '="' + v.replace(/"/g, '\\"') + '"]';
+      const sel = attrSel(el.tagName.toLowerCase(), a, v);
+      if (!sel) continue;
       try { if (doc.querySelectorAll(sel).length === 1) return sel; } catch (e) { /* invalid */ }
     }
     const classes = stableClasses(el);
@@ -132,7 +165,64 @@
     return diff[0] || null; // na mile to null -> adapter isIncoming mein fallback
   }
 
+  // Direction marker: class diff (existing) ya attribute diff ya "You said:"-type pehli line.
+  // Kuch na mile to null -> caller fail-closed (profile save nahi hota).
+  const DIR_ATTR = /role|author|direction|from|sender|type|side|owner|mine|out|incoming|outgoing/i;
+  const SKIP_ATTR = new Set(['class', 'style', 'id', 'tabindex', 'aria-posinset', 'data-index', 'data-id', 'key']);
+  function firstLine(row) {
+    return String((row && row.innerText) || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
+  }
+  function deriveDirection(inRow, outRow) {
+    if (!inRow || !outRow || inRow === outRow) return null;
+    const cls = deriveOutgoingClass(inRow, outRow);
+    const stableCls = cls && !isFragileClass(cls) ? cls : null;
+    if (stableCls) return { outgoingClass: stableCls };
+    // attribute difference
+    const names = new Set([...(inRow.getAttributeNames ? inRow.getAttributeNames() : []), ...(outRow.getAttributeNames ? outRow.getAttributeNames() : [])]);
+    for (const n of names) {
+      if (SKIP_ATTR.has(n) || !DIR_ATTR.test(n)) continue;
+      const a = inRow.getAttribute(n), b = outRow.getAttribute(n);
+      if (b && a !== b) return { outgoingAttr: { name: n, value: b } };
+    }
+    // role marker on a descendant (data-message-author-role on inner div)
+    const innerIn = inRow.querySelector && inRow.querySelector('[data-message-author-role]');
+    const innerOut = outRow.querySelector && outRow.querySelector('[data-message-author-role]');
+    if (innerIn && innerOut) {
+      const a = innerIn.getAttribute('data-message-author-role'), b = innerOut.getAttribute('data-message-author-role');
+      if (a !== b) return { outgoingInnerAttr: { name: 'data-message-author-role', value: b } };
+    }
+    // "You said:" / "ChatGPT said:" style labels (must look like a label ending with ':')
+    const fi = firstLine(inRow), fo = firstLine(outRow);
+    const looksLabel = (s) => s.length > 0 && s.length <= 30 && /:$/.test(s);
+    if (looksLabel(fo) && looksLabel(fi) && fo !== fi) return { outgoingPrefix: fo };
+    // hashed class diff is better than nothing only when user chose it explicitly; still fragile
+    if (cls) return { outgoingClass: cls, fragileDirection: true };
+    return null;
+  }
+  function isOutgoingRow(row, profile) {
+    if (!row || !profile) return false;
+    if (profile.outgoingClass && row.classList.contains(profile.outgoingClass)) return true;
+    if (profile.outgoingAttr && row.getAttribute(profile.outgoingAttr.name) === profile.outgoingAttr.value) return true;
+    if (profile.outgoingInnerAttr) {
+      const el = row.querySelector('[' + profile.outgoingInnerAttr.name + ']');
+      if (el && el.getAttribute(profile.outgoingInnerAttr.name) === profile.outgoingInnerAttr.value) return true;
+    }
+    if (profile.outgoingPrefix && firstLine(row) === profile.outgoingPrefix) return true;
+    return false;
+  }
+  function rowText(row, profile) {
+    let t = String((row && row.innerText) || '');
+    const fl = firstLine(row);
+    if (profile && fl && (fl === profile.outgoingPrefix || /(said|says|wrote):$/i.test(fl))) {
+      t = t.replace(fl, '').trim();
+    }
+    return t;
+  }
+
   global.ChatCustom = {
+    deriveDirection,
+    isOutgoingRow,
+    rowText,
     isFragileClass,
     isFragileSelector,
     deriveRowSelector,

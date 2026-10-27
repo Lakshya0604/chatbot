@@ -87,13 +87,13 @@
     window.ChatEngine.createChatAssistant({
       getChatKey: makeGetChatKey(profile),
       rowsSelector: profile.rows,
-      isIncoming: (row) => (profile.outgoingClass ? !row.classList.contains(profile.outgoingClass) : true),
+      isIncoming: (row) => !U.isOutgoingRow(row, profile),
       getText: (row) => {
         if (profile.textSel) {
           const el = row.querySelector(profile.textSel);
           return el ? el.innerText : '';
         }
-        return row.innerText || '';
+        return U.rowText(row, profile);
       },
       composerSelector: profile.composer,
       sendSelector: profile.send || null,
@@ -114,7 +114,7 @@
   // ---------- picker: staged element selection ----------
   const STAGES = [
     { key: 'rows', ask: 'STEP 1/5: kisi bhi EK message bubble par click karo (sab bubbles ka pattern banega).', required: true },
-    { key: 'outRow', ask: 'STEP 2/5: apni BHEJI HUI ek message par click karo (taaki aage-peeche pehchan sake). SKIP allowed.', required: false },
+    { key: 'outRow', ask: 'STEP 2/5: apni BHEJI HUI ek message par click karo (taaki pata chale kaun si message tumhari hai).', required: true },
     { key: 'composer', ask: 'STEP 3/5: typing box par click karo.', required: true },
     { key: 'send', ask: 'STEP 4/5: send button par click karo. SKIP = sirf draft mode (auto-send kabhi nahi).', required: false },
     { key: 'title', ask: 'STEP 5/5: chat ke naam/title par click karo. SKIP = is page ki URL hi chat ki pehchaan.', required: false },
@@ -195,15 +195,31 @@
       // ban jaati hai jo row par hoti hi nahi, aur SAB messages incoming lagte hain.
       const inRow = picked.rows && picked.rows.closest ? (picked.rows.closest(rows) || picked.rows) : picked.rows;
       const outRow = picked.outRow && picked.outRow.closest ? (picked.outRow.closest(rows) || picked.outRow) : picked.outRow;
+      // ---- direction (kaun si message meri hai) - fail-closed ----
+      const dir = U.deriveDirection(inRow, outRow);
+      try { document.documentElement.setAttribute('data-cc-last', JSON.stringify({ rows, dir, same: inRow === outRow, inTag: inRow && inRow.tagName, outTag: outRow && outRow.tagName })); } catch (e) {}
+      if (!dir) {
+        window.alert('Custom mode: ye site abhi supported nahi - samajh nahi aaya ki kaun si message tumhari hai aur kaun si saamne wale ki. Isliye AI band rakha (fail-closed).');
+        return;
+      }
+      // Sanity check: picked rows par selector sach mein lagta hai, aur dono rows alag-alag side ki pehchani jaati hain.
+      const all = Array.from(document.querySelectorAll(rows));
+      const probe = { outgoingClass: dir.outgoingClass, outgoingAttr: dir.outgoingAttr, outgoingInnerAttr: dir.outgoingInnerAttr, outgoingPrefix: dir.outgoingPrefix };
+      if (!all.includes(inRow) || !all.includes(outRow) || U.isOutgoingRow(inRow, probe) || !U.isOutgoingRow(outRow, probe)) {
+        window.alert('Custom mode: message pattern verify nahi hua (bubbles ya side galat lag rahi hai). AI band rakha (fail-closed). Dobara select karo ya Step 1/2 mein doosri message chuno.');
+        return;
+      }
+      const sendEl = picked.send && picked.send.closest ? (picked.send.closest('button,[role="button"],a,input[type="submit"]') || picked.send) : picked.send;
+      const compEl = picked.composer && picked.composer.closest ? (picked.composer.closest('textarea,input,[contenteditable="true"],[contenteditable=""],[role="textbox"]') || picked.composer) : picked.composer;
       const profile = {
         enabled: true,
         rows,
-        textSel: null, // v1: poori row ka text (simple sites par theek)
-        outgoingClass: (inRow && outRow && inRow !== outRow) ? U.deriveOutgoingClass(inRow, outRow) : null,
-        composer,
-        send: picked.send ? U.deriveElementSelector(picked.send, document) : null,
+        textSel: null,
+        ...probe,
+        composer: compEl === picked.composer ? composer : (U.deriveElementSelector(compEl, document) || composer),
+        send: sendEl ? U.deriveElementSelector(sendEl, document) : null,
         titleSel: picked.title ? U.deriveElementSelector(picked.title, document) : null,
-        fragile: U.isFragileSelector(rows) || U.isFragileSelector(composer),
+        fragile: U.isFragileSelector(rows) || U.isFragileSelector(composer) || !!dir.fragileDirection,
         createdAt: new Date().toISOString(),
       };
       await saveProfile(profile);

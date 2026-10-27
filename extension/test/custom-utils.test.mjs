@@ -117,3 +117,43 @@ test('deriveRowSelector: repeated inner content (markdown blocks) row selector N
   const sel = w.ChatCustom.deriveRowSelector(md, w.document);
   assert.equal(sel, 'div.msg', 'repeated inner .md (6 matches, 2 parents) ko outer row (4 matches, 1 parent) harata hai');
 });
+
+// ---- ChatGPT-shaped DOM: hashed classes, same-class rows, "You said:" heading ----
+const GPT = `<ol aria-label="Conversation">
+<li class="xeuugli xak2u8z"><h5>You said:</h5><div>hello there</div></li>
+<li class="xeuugli xak2u8z"><h6>ChatGPT said:</h6><section aria-label="DIL content">hi, how can I help</section></li>
+</ol><textarea name="prompt" id="p"></textarea><button aria-label="Send message"><svg><use/></svg></button>`;
+function gptWorld(t) {
+  const w = makeWorld(GPT, t);
+  Object.defineProperty(w.HTMLElement.prototype, 'innerText', { get() { return this.textContent.replace(/(said:)/g, '$1\n'); } });
+  return w;
+}
+test('hashed-class row: parent hook selector + prefix direction', (t) => {
+  const w = gptWorld(t); const d = w.document; const U = w.ChatCustom;
+  const [a, b] = d.querySelectorAll('li');
+  const sel = U.deriveRowSelector(b, d);
+  assert.equal(sel, 'ol[aria-label^="Conversation"] > li');
+  const dir = U.deriveDirection(b, a); // inRow=assistant, outRow=user
+  assert.equal(dir.outgoingPrefix, 'You said:');
+  assert.equal(U.isOutgoingRow(a, dir), true);
+  assert.equal(U.isOutgoingRow(b, dir), false);
+  assert.equal(U.rowText(a, dir), 'hello there');
+});
+test('send/composer resolve to stable selectors', (t) => {
+  const w = gptWorld(t); const d = w.document; const U = w.ChatCustom;
+  assert.equal(U.deriveElementSelector(d.querySelector('button'), d), 'button[aria-label^="Send message"]');
+  assert.match(U.deriveElementSelector(d.querySelector('textarea'), d), /name="prompt"|#p/);
+});
+test('no direction marker -> null (fail closed)', (t) => {
+  const w = makeWorld('<div class="aaa1 bbb2">x</div><div class="aaa1 bbb2">y</div>', t);
+  const [a, b] = w.document.querySelectorAll('div');
+  assert.equal(w.ChatCustom.deriveDirection(a, b), null);
+});
+
+test('per-chat id in aria-label -> stable prefix selector', (t) => {
+  const w = makeWorld('<ol aria-label="Conversation chat-6532ceab-940f-4827-84d1-2d3f6d39d782"><li class="aa1 bb2">a</li><li class="aa1 bb2">b</li></ol>', t);
+  const li = w.document.querySelector('li');
+  const sel = w.ChatCustom.deriveRowSelector(li, w.document);
+  assert.equal(sel, 'ol[aria-label^="Conversation"] > li');
+  assert.equal(w.document.querySelectorAll(sel).length, 2);
+});
