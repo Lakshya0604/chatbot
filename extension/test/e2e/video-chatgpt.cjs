@@ -32,6 +32,7 @@ const ok = (c, l) => { console.log(c ? 'PASS:' : 'FAIL:', l); if (!c) throw new 
     const cap = (t) => page.evaluate((t) => { let c = document.getElementById('demo-cap'); if (!c) { c = document.createElement('div'); c.id = 'demo-cap'; c.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#111;color:#fff;font:600 16px sans-serif;padding:8px 14px;border-bottom:3px solid #f5a623;pointer-events:none'; document.body.appendChild(c); } c.textContent = t; }, t).catch(() => {});
     const comp = () => page.locator('textarea[name="prompt"]').first();
     const sendBtn = () => page.getByRole('button', { name: 'Send message' }).first();
+    const typeSend = async (text) => { await comp().click(); await page.keyboard.press('Control+A'); await page.keyboard.press('Backspace'); await sleep(300); await page.keyboard.type(text, { delay: 25 }); await sleep(600); console.log('TYPED composer=', JSON.stringify(await comp().inputValue()), 'streaming=', await page.evaluate(() => !!document.querySelector('button[aria-label^="Stop"]')), 'dis=', await page.evaluate(() => { const b = document.querySelector('button[aria-label^="Send message"]'); return b ? b.outerHTML.slice(0, 0) + b.hasAttribute('data-visually-disabled') + '/' + b.disabled : 'nobtn'; })); await shot(page, 'typed'); await page.keyboard.press('Enter'); };
     const nIn = () => page.locator('section[aria-label="DIL content"]').count();
     await cap('REAL chatgpt.com (signed out guest, brand-new test chat). Extension v0.7.2 CUSTOM mode. Captions describe only what was observed.');
     await sleep(3000);
@@ -84,7 +85,7 @@ const ok = (c, l) => { console.log(c ? 'PASS:' : 'FAIL:', l); if (!c) throw new 
     await cap('Step 3: sending a test message, then waiting to see whether a draft appears in the typing box');
     console.log('PRE-STEP3 URL:', page.url(), 'LI:', await page.locator('ol[aria-label="Conversation"] > li').count());
     const out0 = await page.locator('[data-message-author-role], section[aria-label="DIL content"]').count();
-    await comp().click(); await page.keyboard.type('Cool. Do you like movies?', { delay: 25 }); await sleep(300); await sendBtn().click();
+    await typeSend('Cool. Do you like movies?');
     const n0 = await nIn();
     for (let i = 0; i < 40 && (await nIn()) <= n0 - 0 && (await nIn()) < 2; i++) await sleep(1000);
     await sleep(2000);
@@ -101,7 +102,7 @@ const ok = (c, l) => { console.log(c ? 'PASS:' : 'FAIL:', l); if (!c) throw new 
     await comp().fill('');
     await cap('Step 4: Auto turned on; sending another test message and watching for an extension send');
     await page.click('#cc-auto-btn'); await sleep(1500);
-    await comp().click(); await page.keyboard.type('Haha nice. Tell me one fun fact in one line.', { delay: 25 }); await sleep(300); await sendBtn().click();
+    await typeSend('Haha nice. Tell me one fun fact in one line.');
     for (let i = 0; i < 60 && (await nIn()) < 3; i++) await sleep(1000);
     let userCount = 0; for (let i = 0; i < 60; i++) { await sleep(1000); userCount = await page.locator('h4', { hasText: 'You said' }).count(); if (userCount >= 4) break; }
     await shot(page, '08-autosent');
