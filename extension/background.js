@@ -116,10 +116,3 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   } catch (e) { /* restricted page */ }
 });
 
-// Hosted backend so gaya ho to pehle se jaga do (sirf /health, koi chat data nahi).
-function warmBackend() {
-  chrome.storage.sync.get('backendUrl', (r) => {
-    if (r.backendUrl && /^https:/.test(r.backendUrl)) fetch(r.backendUrl.replace(/\/$/, '') + '/health').catch(() => {});
-  });
-}
-chrome.runtime.onStartup.addListener(warmBackend);

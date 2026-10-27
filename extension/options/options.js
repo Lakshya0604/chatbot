@@ -161,7 +161,7 @@ document.getElementById('pairBtn').addEventListener('click', async () => {
     const meta = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
     const url = String(meta.u || '').replace(/\/$/, '');
     if (!/^https:\/\/[a-z0-9.-]+\.onrender\.com$/i.test(url)) throw new Error('code mein valid hosted URL nahi');
-    st.textContent = 'Server jaag raha hai, 1-2 minute tak lag sakta hai...';
+    st.textContent = 'Server so raha ho sakta hai - jaagne mein thoda time lag sakta hai, ruko...';
     const res = await fetch(url + '/pair/redeem', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }),
     });
