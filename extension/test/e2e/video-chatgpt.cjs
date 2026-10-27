@@ -24,7 +24,7 @@ const ok = (c, l) => { console.log(c ? 'PASS:' : 'FAIL:', l); if (!c) throw new 
     for (let i = 0; i < 40 && !sw; i++) { sw = ctx.serviceWorkers()[0]; if (!sw) await sleep(300); }
     await sw.evaluate((k) => new Promise((r) => chrome.storage.sync.set({ character: { name: 'Meera', gender: 'female', tone: 'funny', role: 'college friend', replyLength: 'short' } }, () => chrome.storage.local.set({ aiConfig: { provider: 'groq', apiKey: k, model: '' } }, r))), KEY);
     const page = await ctx.newPage();
-    page.on('dialog', async (d) => { console.log('DIALOG:', d.message().slice(0, 80)); await d.accept(); console.log('LAST:', await page.evaluate(() => document.documentElement.getAttribute('data-cc-last')).catch(() => '?')); });
+    page.on('dialog', async (d) => { console.log('DIALOG:', d.message().slice(0, 80)); await d.accept(); });
     await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded' });
     await sleep(6000); await shot(page, '01-home');
     // dismiss cookie banner if any

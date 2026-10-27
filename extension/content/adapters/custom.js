@@ -197,7 +197,6 @@
       const outRow = picked.outRow && picked.outRow.closest ? (picked.outRow.closest(rows) || picked.outRow) : picked.outRow;
       // ---- direction (kaun si message meri hai) - fail-closed ----
       const dir = U.deriveDirection(inRow, outRow);
-      try { document.documentElement.setAttribute('data-cc-last', JSON.stringify({ rows, dir, same: inRow === outRow, inTag: inRow && inRow.tagName, outTag: outRow && outRow.tagName })); } catch (e) {}
       if (!dir) {
         window.alert('Custom mode: ye site abhi supported nahi - samajh nahi aaya ki kaun si message tumhari hai aur kaun si saamne wale ki. Isliye AI band rakha (fail-closed).');
         return;
