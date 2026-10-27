@@ -15,8 +15,32 @@
       </div>
     </header>
 
+    <section class="card connect" id="ownKeyCard">
+      <h2><span class="step">1</span> Apni AI key se connect karo (code ki zaroorat nahi)</h2>
+      <p class="hint">Apni free <b>Groq</b> API key daalo (Groq = inference company, console.groq.com/keys; <b>xAI ka Grok nahi</b>). Key sirf is computer ke Chrome mein save hoti hai (sync nahi hoti) aur AI requests seedha provider ko jaati hain - koi server beech mein nahi. Key kisi chat ya dusre ko mat bhejo.</p>
+      <label>Provider
+        <select id="aiProvider">
+          <option value="groq">Groq (recommended, free key)</option>
+          <option value="custom">Custom OpenAI-compatible (advanced, base URL + model do)</option>
+        </select>
+      </label>
+      <label>API key
+        <input id="aiKey" type="password" placeholder="gsk_..." autocomplete="off" spellcheck="false" />
+      </label>
+      <label id="aiModelRow">Model (khaali = default)
+        <input id="aiModel" type="text" placeholder="openai/gpt-oss-120b" autocomplete="off" />
+      </label>
+      <label id="aiBaseRow" style="display:none">Base URL (custom ke liye, https://...)
+        <input id="aiBaseUrl" type="text" placeholder="https://api.example.com/v1" autocomplete="off" />
+      </label>
+      <button id="aiSaveBtn" type="button">Key save karo + test</button>
+      <button id="aiClearBtn" type="button" data-variant="secondary">Key hatao</button>
+      <p class="hint" id="aiStatus"></p>
+      <p class="hint">Test mein ek chhota sa asli AI call hota hai (tumhari apni key ka thoda usage).</p>
+    </section>
+
     <section class="card connect">
-      <h2><span class="step">1</span> Backend se connect karo</h2>
+      <h2><span class="step">1b</span> Ya hosted backend se connect karo (pairing code)</h2>
       <p class="hint">Pairing code ek hi baar paste karna hai (30 minute mein expire hota hai). Hosted server so raha ho to pehli baar 1 minute tak lag sakta hai.</p>
     <label>Pairing code (hosted backend ke liye - sirf ek baar paste karo, phir "Connect" dabao)
       <input id="pairCode" type="text" placeholder="cc1p...." autocomplete="off" />
@@ -164,6 +188,7 @@
     <button id="save" type="button">Save</button>
     <span id="status"></span>
   </main>
+  <script src="../lib/ai.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

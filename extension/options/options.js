@@ -122,22 +122,16 @@ async function previewReply() {
   const sample = document.getElementById('previewInput').value.trim();
   if (!sample) { out.textContent = 'Pehle ek sample message likho.'; return; }
   const backendUrl = document.getElementById('backendUrl').value.trim() || 'http://127.0.0.1:8787';
-  const authToken = document.getElementById('authToken').value.trim();
   out.textContent = 'AI se poochha ja raha hai...';
   try {
-    const res = await fetch(backendUrl.replace(/\/$/, '') + '/reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Chatbot-Token': authToken },
-      body: JSON.stringify({
-        character: collectCharacter(),
-        messages: [{ role: 'user', content: sample }],
-      }),
+    const res = await chrome.runtime.sendMessage({
+      type: 'GENERATE_REPLY',
+      payload: { backendUrl, character: collectCharacter(), messages: [{ role: 'user', content: sample }] },
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { out.textContent = 'Error: ' + (data.error || res.status); return; }
-    out.textContent = data.reply ? ('AI: ' + data.reply) : '(khaali reply aaya)';
+    if (!res || !res.ok) { out.textContent = 'Error: ' + ((res && (res.error || (res.data && res.data.error))) || 'unknown'); return; }
+    out.textContent = res.data && res.data.reply ? ('AI: ' + res.data.reply) : '(khaali reply aaya)';
   } catch (e) {
-    out.textContent = 'Backend se connect nahi hua: ' + e.message;
+    out.textContent = 'AI se connect nahi hua: ' + e.message;
   }
 }
 document.getElementById('preview').addEventListener('click', previewReply);
@@ -177,3 +171,66 @@ document.getElementById('pairBtn').addEventListener('click', async () => {
     st.textContent = 'Connect nahi hua: ' + (e && e.message ? e.message : e);
   }
 });
+
+
+// ---------- Own-key mode: key sirf chrome.storage.local (is device) mein ----------
+(function ownKey() {
+  const $ = (id) => document.getElementById(id);
+  const st = $('aiStatus');
+  function syncRows() {
+    const custom = $('aiProvider').value === 'custom';
+    $('aiBaseRow').style.display = custom ? '' : 'none';
+    $('aiModel').placeholder = custom ? 'model name (zaroori)' : 'openai/gpt-oss-120b';
+  }
+  $('aiProvider').addEventListener('change', syncRows);
+  chrome.storage.local.get('aiConfig', (r) => {
+    const c = r.aiConfig;
+    if (c && c.apiKey) {
+      $('aiProvider').value = c.provider === 'custom' ? 'custom' : 'groq';
+      $('aiModel').value = c.model || '';
+      $('aiBaseUrl').value = c.baseUrl || '';
+      $('aiKey').value = '';
+      $('aiKey').placeholder = 'Key saved hai (chhupi hui). Badalni ho to nayi paste karo.';
+      st.textContent = 'Own-key mode ON (' + (c.provider === 'custom' ? 'custom' : 'Groq') + '). AI replies seedha provider se aati hain.';
+    }
+    syncRows();
+  });
+  $('aiSaveBtn').addEventListener('click', async () => {
+    try {
+      const prev = (await chrome.storage.local.get('aiConfig')).aiConfig || {};
+      const provider = $('aiProvider').value === 'custom' ? 'custom' : 'groq';
+      const typed = $('aiKey').value.trim();
+      const apiKey = typed || prev.apiKey || '';
+      if (!apiKey) throw new Error('pehle API key paste karo');
+      const cfg = { provider, apiKey, model: $('aiModel').value.trim(), baseUrl: $('aiBaseUrl').value.trim() };
+      const r = self.CCAI.resolveProvider(cfg); // validate
+      if (provider === 'custom') {
+        const origin = new URL(r.baseUrl).origin + '/*';
+        const have = await chrome.permissions.contains({ origins: [origin] });
+        if (!have) {
+          const ok = await chrome.permissions.request({ origins: [origin] });
+          if (!ok) throw new Error('is provider ka access allow nahi hua');
+        }
+      }
+      st.textContent = 'Test ho raha hai...';
+      await chrome.storage.local.set({ aiConfig: cfg });
+      const res = await chrome.runtime.sendMessage({ type: 'GENERATE_REPLY', payload: { character: { name: 'Test', tone: 'friendly' }, messages: [{ role: 'user', content: 'hi' }] } });
+      if (!res || !res.ok) {
+        await chrome.storage.local.set({ aiConfig: prev.apiKey ? prev : null });
+        if (!prev.apiKey) await chrome.storage.local.remove('aiConfig');
+        throw new Error((res && res.error) || 'test fail');
+      }
+      $('aiKey').value = '';
+      $('aiKey').placeholder = 'Key saved hai (chhupi hui). Badalni ho to nayi paste karo.';
+      st.textContent = 'Connected: key kaam kar rahi hai. Test reply mil gaya. Ab character save karke chat mein use karo.';
+    } catch (e) {
+      st.textContent = 'Save nahi hua: ' + (e && e.message ? e.message : e);
+    }
+  });
+  $('aiClearBtn').addEventListener('click', async () => {
+    await chrome.storage.local.remove('aiConfig');
+    $('aiKey').value = '';
+    $('aiKey').placeholder = 'gsk_...';
+    st.textContent = 'Key hata di gayi. Ab hosted backend (pairing) ya nayi key use hogi.';
+  });
+})();

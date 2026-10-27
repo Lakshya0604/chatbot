@@ -9,6 +9,8 @@
 // Content script (engine) ka code ise kabhi nahi padhta, aur website ke apne
 // scripts extension storage tak pahunch hi nahi sakte.
 
+importScripts('lib/ai.js');
+
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8787';
 const REQUEST_TIMEOUT_MS = 120000; // hosted free server so ke jaagne mein der laga sakta hai // AI reply der se aaye to hamesha ke liye hang na ho
 
@@ -17,6 +19,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   const payload = request.payload || {};
   const backendUrl = payload.backendUrl || DEFAULT_BACKEND_URL;
+
+  // OWN-KEY mode: user ne apni API key set ki hai -> provider ko seedha call
+  // (koi server beech mein nahi, key sirf is device ke storage.local mein).
+  chrome.storage.local.get('aiConfig', (cfgRes) => {
+    const cfg = cfgRes && cfgRes.aiConfig;
+    if (cfg && cfg.apiKey) {
+      self.CCAI.generateReply(cfg, { character: payload.character, messages: payload.messages, followUp: payload.followUp === true })
+        .then((reply) => sendResponse({ ok: true, status: 200, data: { reply } }))
+        .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err).split(cfg.apiKey).join('[key]') }));
+      return;
+    }
+    relayViaBackend();
+  });
+  return true;
+
+  function relayViaBackend() {
 
   // Token khud storage se padho - content script se aaye payload par bharosa nahi.
   // authToken secret hai: storage.local (isi device). Purane versions sync mein
@@ -59,8 +77,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     });
   });
-
-  return true; // sendResponse async chalega
+  }
 });
 
 // ---------- CUSTOM mode + form-fill entry points (user-controlled, per-site) ----------
