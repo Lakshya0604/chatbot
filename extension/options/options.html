@@ -7,9 +7,27 @@
 </head>
 <body>
   <main>
-    <h1>Character settings</h1>
-    <p class="hint">Ye settings har AI reply ko guide karti hain. Save karke settings backend ko use hongi. Platform adapter abhi available nahi hai (README ka Status section dekho).</p>
+    <header class="hero">
+      <div class="logo">CC</div>
+      <div>
+        <h1>Character Chatbot</h1>
+        <p>Apna character set karo, backend connect karo, aur chats mein AI se reply banwao. Auto-send tabhi hota hai jab tum us chat mein khud ON karo.</p>
+      </div>
+    </header>
 
+    <section class="card connect">
+      <h2><span class="step">1</span> Backend se connect karo</h2>
+      <p class="hint">Pairing code ek hi baar paste karna hai (30 minute mein expire hota hai). Hosted server so raha ho to pehli baar 1 minute tak lag sakta hai.</p>
+    <label>Pairing code (hosted backend ke liye - sirf ek baar paste karo, phir "Connect" dabao)
+      <input id="pairCode" type="text" placeholder="cc1p...." autocomplete="off" />
+    </label>
+    <button id="pairBtn" type="button">Connect</button>
+    <p class="hint" id="pairStatus"></p>
+
+    </section>
+
+    <section class="card">
+      <h2><span class="step">2</span> Character</h2>
     <label>Character ka naam
       <input id="name" type="text" placeholder="e.g. Meera" />
     </label>
@@ -80,20 +98,19 @@
       Halki flirting allowed (boundaries ke andar)
     </label>
 
-    <label>Pairing code (hosted backend ke liye - sirf ek baar paste karo, phir "Connect" dabao)
-      <input id="pairCode" type="text" placeholder="cc1p...." autocomplete="off" />
-    </label>
-    <button id="pairBtn" type="button">Connect</button>
-    <p class="hint" id="pairStatus"></p>
+    </section>
 
+    <section class="card">
+      <h2><span class="step">3</span> Advanced: backend URL / token</h2>
     <label>Backend URL
       <input id="backendUrl" type="text" placeholder="http://127.0.0.1:8787" />
     </label>
 
-    <label>Auth token (.env ke AUTH_TOKEN se same rakhna)
-      <input id="authToken" type="text" placeholder="koi bhi lamba random string" />
+    <label>Auth token (secret - pairing ke baad apne aap bharta hai)
+      <input id="authToken" type="password" placeholder="pairing se apne aap bharta hai" autocomplete="off" />
     </label>
 
+    </section>
     <p class="hint">Privacy: character settings Chrome sync mein tumhare apne Google account ke through sync hoti hain. Auth token secret hai - wo kabhi sync nahi hota, sirf isi device par rehta hai. Chat messages sirf tab backend/AI ko jaate hain jab tum us chat mein AI on karte ho.</p>
 
 
