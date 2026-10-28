@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<!-- mock-auto-align.html - AUTO mode test: HASHED classes, koi direction attribute
+     NAHI - sirf left/right alignment se direction aani chahiye. Sidebar decoy hai. -->
+<html><head><meta charset="utf-8"><title>AlignChat (auto test)</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; }
+  .xq9side { width: 180px; background: #111b21; color: #fff; padding: 8px; }
+  .zk2conv { padding: 10px; border-bottom: 1px solid #2a3942; }
+  .ab7chat { flex: 1; display: flex; flex-direction: column; }
+  .hd3 { padding: 12px; background: #3b4a54; color: #fff; font-weight: bold; }
+  .lst9 { flex: 1; padding: 16px; overflow-y: auto; background: #efeae2; }
+  .rw4 { margin: 8px 0; display: flex; }
+  .bb8 { max-width: 55%; padding: 10px 14px; border-radius: 12px; background: #fff; }
+  .cb1 { display: flex; gap: 8px; padding: 12px; background: #e9edef; }
+  .ce5 { flex: 1; background: #fff; border-radius: 8px; padding: 10px; min-height: 22px; }
+  .sb6 { background: #00a884; color: #fff; border: 0; border-radius: 8px; padding: 10px 22px; cursor: pointer; }
+</style></head><body>
+  <div class="xq9side"><div class="zk2conv">Asha: kal milte</div><div class="zk2conv">Bhai: ok</div><div class="zk2conv">Maa: khana?</div></div>
+  <div class="ab7chat">
+    <div class="hd3">Rohan (align auto-test)</div>
+    <div class="lst9">
+      <div class="rw4" style="justify-content:flex-start"><div class="bb8">oye kya haal?</div></div>
+      <div class="rw4" style="justify-content:flex-end"><div class="bb8" style="background:#d9fdd3">badhiya, tu bata</div></div>
+      <div class="rw4" style="justify-content:flex-start"><div class="bb8">main bhi mast</div></div>
+    </div>
+    <div class="cb1">
+      <div class="ce5" contenteditable="true"></div>
+      <button class="sb6" type="button" aria-label="Send message">Send</button>
+    </div>
+  </div>
+<script>
+  const list = document.querySelector('.lst9');
+  const composer = document.querySelector('.ce5');
+  function addRow(text, out) {
+    const row = document.createElement('div'); row.className = 'rw4';
+    row.style.justifyContent = out ? 'flex-end' : 'flex-start';
+    const b = document.createElement('div'); b.className = 'bb8';
+    if (out) b.style.background = '#d9fdd3';
+    b.textContent = text;
+    row.appendChild(b); list.appendChild(row);
+    list.setAttribute('data-churn', String(Math.random()));
+    list.scrollTop = list.scrollHeight;
+  }
+  document.querySelector('.sb6').addEventListener('click', () => {
+    const t = (composer.innerText || '').trim();
+    if (!t) return;
+    composer.innerText = '';
+    addRow(t, true);
+  });
+  window.__mock = {
+    receive: (text) => addRow(text, false),
+    receiveStream: (parts, gapMs) => {
+      addRow(parts[0], false);
+      let i = 1;
+      const tick = () => {
+        if (i >= parts.length) return;
+        const b = list.lastElementChild.querySelector('.bb8');
+        b.textContent += parts[i];
+        i++;
+        setTimeout(tick, gapMs || 300);
+      };
+      setTimeout(tick, gapMs || 300);
+    },
+  };
+</script></body></html>

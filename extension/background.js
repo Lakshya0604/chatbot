@@ -88,13 +88,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id || !/^https?:/.test(tab.url || '')) return;
   try {
-    // Picker ke liye engine+utils+custom inject karo (engine inert hai jab tak
-    // koi adapter createChatAssistant na bulaye; custom.js picker chalayega).
+    // AUTO setup ke liye engine+utils+auto inject karo (engine inert hai jab
+    // tak koi adapter createChatAssistant na bulaye; auto.js khud layout detect
+    // karta hai - koi manual picker nahi).
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/custom.js'],
+      files: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/auto-utils.js', 'content/adapters/auto.js'],
     });
-    chrome.tabs.sendMessage(tab.id, { type: 'CC_START_PICKER' }, () => void chrome.runtime.lastError);
+    chrome.tabs.sendMessage(tab.id, { type: 'CC_AUTO_START' }, () => void chrome.runtime.lastError);
   } catch (e) {
     // chrome:// , Web Store, restricted pages par injection fail hoti hai - normal.
   }
@@ -108,7 +109,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   chrome.scripting.registerContentScripts([{
     id,
     matches: [request.origin + '/*'],
-    js: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/custom.js'],
+    js: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/auto-utils.js', 'content/adapters/auto.js'],
     runAt: 'document_idle',
     persistAcrossSessions: true,
   }])

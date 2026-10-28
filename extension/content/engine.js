@@ -101,6 +101,8 @@
     }
     let busy = false;
     let lastSeenIncoming = '';
+    let lastEngineText = ''; // engine ka aakhri insert/send - self-echo (ulta direction) pakadne ke liye
+    let pendingIncoming = null; // jis incoming content par batch arm hua (streaming re-arm ke liye)
     // epoch: har stop/off/state-change par badhta hai. In-flight AI request ka
     // late reply tab discard hota hai jab epoch badal chuka ho.
     let epoch = 0;
@@ -418,6 +420,19 @@
       bootLastOutgoing = null; // ab aage ke outgoing "naye" hain
       lastArmedOutgoing = undefined; // naya episode: agla outgoing phir arm karega
       if (last.content === lastSeenIncoming) return;
+      // SELF-ECHO GUARD: jo text engine ne khud bheja/insert kiya wahi "naya
+      // incoming" dikh raha hai -> direction marker ULT chal raha hai. Ye loop
+      // ka seedha raasta hai - chat turant band (fail-closed), fresh consent se
+      // hi wapas. Normal chats mein ye kabhi match nahi karna chahiye.
+      if (lastEngineText && last.content === lastEngineText) {
+        epoch++;
+        if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+        clearFollowUp();
+        await setChatState(chatKey, 'stopped', 'self-echo: direction doubtful, fail-closed band');
+        showBanner('AI is chat par band kar diya: apni hi bheji hui reply incoming ki tarah dikh rahi hai (direction pakka nahi). Fresh consent ke bina wapas nahi chalega.', null);
+        refreshToggle();
+        return;
+      }
       lastSeenIncoming = last.content;
       void persistLastHandled(chatKey, last.content);
 
@@ -432,6 +447,7 @@
         return;
       }
 
+      pendingIncoming = last.content;
       if (batchTimer) clearTimeout(batchTimer);
       batchTimer = setTimeout(() => void generateSuggestion(), replyDelayMs());
     }
@@ -489,6 +505,18 @@
       if (lastMsg.role === 'user' && stopPattern.test(lastMsg.content)) {
         await setChatState(chatKey, 'stopped', 'recipient ne stop kaha');
         refreshToggle();
+        return;
+      }
+
+      // STREAMING RE-ARM: real sites message text ko chunks mein badhati hain.
+      // Timer arm hone ke BAAD text aur aaya ho to partial par reply na bane -
+      // naye content par timer dobara arm karo aur abhi generate mat karo.
+      if (!(opts && opts.followUp) && lastMsg.role === 'user' && pendingIncoming && lastMsg.content !== pendingIncoming) {
+        pendingIncoming = lastMsg.content;
+        lastSeenIncoming = lastMsg.content;
+        void persistLastHandled(chatKey, lastMsg.content);
+        if (batchTimer) clearTimeout(batchTimer);
+        batchTimer = setTimeout(() => void generateSuggestion(), replyDelayMs());
         return;
       }
 
@@ -571,7 +599,7 @@
       }
       composer.focus();
       engineInserting = true;
-      try { document.execCommand('insertText', false, text); } finally { setTimeout(() => { engineInserting = false; }, 0); }
+      try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); } finally { setTimeout(() => { engineInserting = false; }, 0); }
       // Controlled frameworks (React) apna state async update karte hain, isliye
       // send button insert ke turant baad disabled reh sakta hai. Thoda ruk kar
       // button dobara dhoondo; enabled na mile to draft composer mein hi chhodo.
@@ -626,7 +654,8 @@
       const composer = getComposer();
       if (composer && !composerHasText(composer)) {
         composer.focus();
-        document.execCommand('insertText', false, text);
+        engineInserting = true;
+        try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); } finally { setTimeout(() => { engineInserting = false; }, 0); }
         showBanner('Draft ready. Padho, edit karo, phir KHUD send dabao.', text);
       } else {
         showBanner('Draft ready. Box mein tumhara text hai, isliye yahan rakha:', text);
