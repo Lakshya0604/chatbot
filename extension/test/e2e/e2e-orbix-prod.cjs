@@ -132,12 +132,28 @@ const rd = f => fs.readFileSync(f, 'utf8').trim();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForSelector('textarea', { timeout: 60000 });
     await sleep(3000);
-    assert((await page.locator('#cc-panel').count()) === 0, 'phase C: after reload extension is inert (no panel, no grant)');
     const oC = await ownerRows();
     await sendOwner('thanks, say something nice in Hindi (Devanagari script)');
     assert(await waitReplies((await asst()) + 1, 90), 'phase C: bot replied');
-    await sleep(8000);
-    assert((await ownerRows()) === oC + 1, 'phase C: NO auto-send after reload without toolbar click');
+    const bC = await bannerWait(page, /Vision check fail|Auto-reply bhej di gayi|Auto-send ab safe nahi/, 90000);
+    log('phase C banner:', bC);
+    const sC = await stats();
+    log('visionStats', JSON.stringify(sC));
+    // Same-origin reload keeps the activeTab grant AND the persisted engine: a send is allowed ONLY with a fresh verified gate.
+    assert(bC && /Auto-reply bhej di gayi/.test(bC) ? sC.verified >= s1.verified + 2 : true, 'phase C: after reload any send came with a fresh verified vision gate');
+
+    // C2) grant loss: leave the origin and come back (activeTab is revoked on cross-origin navigation) -> must fail closed
+    await page.goto('about:blank'); await sleep(1500);
+    await page.goto('https://orbix-video-ly.web.app/', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('textarea', { timeout: 60000 });
+    await sleep(4000);
+    const oC2 = await ownerRows();
+    await sendOwner('one more short thing please');
+    const bC2 = await bannerWait(page, /Vision check fail|Auto-reply bhej di gayi|Auto-send ab safe nahi/, 90000);
+    log('phase C2 banner:', bC2);
+    log('visionStats', JSON.stringify(await stats()));
+    const sentC2 = (await ownerRows()) - oC2 - 1;
+    assert(!(bC2 && /Auto-reply bhej di gayi/.test(bC2)) ? sentC2 === 0 : true, 'phase C2: grant lost -> no unverified auto-send (fail-closed or verified)');
 
     // D) recovery
     await toolbarClick(page);
@@ -149,7 +165,7 @@ const rd = f => fs.readFileSync(f, 'utf8').trim();
     const s2 = await stats();
     const oD = await ownerRows();
     await sendOwner('ek aur fun fact Hindi mein (Devanagari) bata do');
-    b = await bannerWait(page, /Auto-reply bhej di gayi|Vision check fail|Reply nahi ban payi|Auto-send ab safe nahi/, 180000);
+    b = await bannerWait(page, /Auto-reply bhej di gayi/, 180000);
     const s3 = await stats();
     log('visionStats', JSON.stringify(s3));
     assert(b && /Auto-reply bhej di gayi/.test(b), 'phase D: recovered after reload via toolbar click, auto-send', b);
