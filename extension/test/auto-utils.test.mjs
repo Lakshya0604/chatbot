@@ -59,6 +59,59 @@ test('findMessageList: composer ke upar wali list milti hai, door ki sidebar lis
   assert.equal(list.rows.length, 3);
 });
 
+test('findMessageList: nav tab bar (buttons/role=tab) ko message list nahi maanta - Orbix regression', (t) => {
+  // Orbix bug: top navbar ke 7 uniform tab buttons "best list" ban gaye the;
+  // asli thread (2 messages) haar gaya tha. Ab controls/nav hard-reject hote hain.
+  const w = makeWorld(
+    '<div id="app">' +
+    '<nav><button role="tab">Servers</button><button role="tab">Catalog</button><button role="tab">Chats</button>' +
+    '<button role="tab">Docs</button><button role="tab">Videos</button><button role="tab">Playground</button><button role="tab">Memory</button></nav>' +
+    '<div id="chatwrap"><div id="thread">' +
+    '<div class="msg user">hi orbix, ek line mein bata tu kya kar sakta hai</div>' +
+    '<div class="msg assistant"><div class="answer">Main text ke jawab de sakta hoon, images bana sakta hoon</div></div>' +
+    '<div class="msg user">accha ek fact sunao</div>' +
+    '<div class="msg assistant"><div class="answer">Billiyon ki whiskers unhe navigate karne mein madad karti hain</div></div>' +
+    '</div><form class="composer"><textarea id="composer"></textarea></form></div>' +
+    '</div>', t);
+  const $ = (s) => w.document.querySelector(s);
+  const rects = new Map([
+    [$('#composer'), { left: 380, width: 700, top: 640, height: 44 }],
+    [$('#thread'), { left: 370, width: 900, top: 120, height: 500 }],
+    [$('nav'), { left: 0, width: 1280, top: 60, height: 50 }],
+    [$('#chatwrap'), { left: 360, width: 920, top: 110, height: 580 }],
+    [$('#app'), { left: 0, width: 1280, top: 0, height: 720 }],
+    [w.document.body, { left: 0, width: 1280, top: 0, height: 720 }],
+  ]);
+  const list = w.ChatAuto.findMessageList(w.document, $('#composer'), measurer(rects));
+  assert.ok(list, 'list mili');
+  assert.equal(list.container.id, 'thread', 'navbar nahi, asli thread chuna');
+  assert.equal(list.rows.length, 4);
+});
+
+test('findMessageList: div role=tablist wale div rows bhi reject (tag BUTTON na ho tab bhi)', (t) => {
+  const w = makeWorld(
+    '<div id="app">' +
+    '<div role="tablist" id="tabs"><div role="tab">Home</div><div role="tab">Chats</div><div role="tab">Settings</div></div>' +
+    '<div id="chatwrap"><div id="thread">' +
+    '<div class="m">pehla message yahan likha hua hai</div>' +
+    '<div class="m">doosra message ka jawab yahan hai</div>' +
+    '<div class="m">teesra message bhi kaafi lamba hai bhai</div>' +
+    '</div><div id="composer" contenteditable="true"></div></div>' +
+    '</div>', t);
+  const $ = (s) => w.document.querySelector(s);
+  const rects = new Map([
+    [$('#composer'), { left: 0, width: 600, top: 640, height: 40 }],
+    [$('#thread'), { left: 0, width: 600, top: 120, height: 500 }],
+    [$('#tabs'), { left: 0, width: 800, top: 10, height: 44 }],
+    [$('#chatwrap'), { left: 0, width: 640, top: 100, height: 580 }],
+    [$('#app'), { left: 0, width: 800, top: 0, height: 720 }],
+    [w.document.body, { left: 0, width: 800, top: 0, height: 720 }],
+  ]);
+  const list = w.ChatAuto.findMessageList(w.document, $('#composer'), measurer(rects));
+  assert.ok(list, 'list mili');
+  assert.equal(list.container.id, 'thread', 'tablist reject hui');
+});
+
 test('detectDirectionMarker: data-message-author-role inner attribute se', (t) => {
   const w = makeWorld(
     '<div class="r"><div data-message-author-role="user">mera msg</div></div>' +

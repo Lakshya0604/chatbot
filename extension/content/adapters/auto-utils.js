@@ -50,16 +50,34 @@
     return els[0];
   }
 
+  // Message rows kabhi interactive controls nahi hote. Nav tabs / buttons /
+  // links bhi "uniform siblings" hote hain (Orbix bug: navbar ke 7 tab buttons
+  // message list ban gaye the) - unhe row set se hard-reject karo.
+  const NON_MESSAGE_TAGS = new Set(['BUTTON', 'A', 'SELECT', 'OPTION', 'INPUT', 'LABEL']);
+  const NON_MESSAGE_ROLES = new Set(['tab', 'button', 'link', 'menuitem', 'menuitemradio', 'menuitemcheckbox', 'option', 'switch', 'checkbox', 'radio']);
+  function isControlRow(el) {
+    if (NON_MESSAGE_TAGS.has(el.tagName)) return true;
+    const role = (el.getAttribute && el.getAttribute('role')) || '';
+    return NON_MESSAGE_ROLES.has(role);
+  }
+  function inNavLike(container) {
+    return !!(container.closest && container.closest('nav, [role="navigation"], [role="tablist"], [role="menubar"], [role="toolbar"], header, [role="banner"]'));
+  }
+
   // Ek container ke "row-like" bachche: text wale direct children jinki count
   // kam se kam minRows ho aur aadhe se zyada ka tag same ho.
   function rowLikeChildren(container, minRows) {
     const kids = Array.from(container.children || []).filter((c) =>
       textOf(c).trim().length > 0);
     if (kids.length < minRows) return null;
+    // Aadhe se zyada bachche controls hain to ye message list nahi (nav/toolbar hai).
+    const controlCount = kids.filter(isControlRow).length;
+    if (controlCount * 2 > kids.length) return null;
     const tags = {};
     kids.forEach((c) => { tags[c.tagName] = (tags[c.tagName] || 0) + 1; });
     const top = Object.keys(tags).sort((a, b) => tags[b] - tags[a])[0];
     if (tags[top] < Math.ceil(kids.length / 2)) return null;
+    if (NON_MESSAGE_TAGS.has(top)) return null;
     return kids.filter((c) => c.tagName === top);
   }
 
@@ -86,13 +104,17 @@
           // container composer ka ancestor hai - theek hai, par rows mein composer wali branch na aaye
           if (rows.some((r) => r.contains(composer))) continue;
         }
+        if (inNavLike(c)) continue; // nav/tablist/toolbar/header kabhi message list nahi
         const rc = measure(c);
         if (rc.width <= 0 || rc.height <= 0) continue;
         // Vertical distance: list composer ke UPAR honi chahiye (ya usi area mein).
         const gap = compRect.top - (rc.top + rc.height);
         if (gap < -compRect.height * 2) continue; // list poori tarah composer ke neeche - chat list nahi
         const scrollable = /(auto|scroll)/.test((c.style && c.style.overflowY) || '') ? 1 : 0;
-        const score = rows.length * 2 + scrollable * 4 - Math.max(0, gap) / 200 - depth * 0.5;
+        // Message-like rows lambi text rakhti hain; chhote labels (tabs/menu) nahi.
+        const avgLen = rows.reduce((a, r) => a + textOf(r).trim().length, 0) / rows.length;
+        const texty = avgLen >= 20 ? 6 : (avgLen >= 8 ? 2 : 0);
+        const score = rows.length * 2 + scrollable * 4 + texty - Math.max(0, gap) / 200 - depth * 0.5;
         if (score > bestScore) { bestScore = score; best = { container: c, rows }; }
       }
     }
