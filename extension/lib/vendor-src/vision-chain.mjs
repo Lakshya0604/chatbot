@@ -29,7 +29,10 @@ function cloudflareFetch(model) {
     const res = await fetch(runUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: init.headers && (init.headers.Authorization || init.headers.authorization || (typeof init.headers.get === 'function' && init.headers.get('authorization'))) || '' },
-      body: JSON.stringify({ prompt, image, max_tokens: 600, temperature: 0 }),
+      // Llama 4 Scout (default): messages + image_url data URL (reads Devanagari/Hinglish). Llama 3.2: {prompt,image}.
+      body: JSON.stringify(/llama-4/i.test(model)
+        ? { messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + image } }] }], max_tokens: 900, temperature: 0 }
+        : { prompt, image, max_tokens: 600, temperature: 0 }),
       signal: init && init.signal,
     });
     const j = await res.json().catch(() => ({}));
@@ -37,7 +40,8 @@ function cloudflareFetch(model) {
       const msg = (j.errors && j.errors[0] && j.errors[0].message) || ('HTTP ' + res.status);
       return new Response(JSON.stringify({ error: { message: 'cloudflare: ' + String(msg).slice(0, 200), type: 'cf_error' } }), { status: res.ok ? 502 : res.status, headers: { 'content-type': 'application/json' } });
     }
-    const r = j.result && j.result.response;
+    const res0 = j.result || {};
+    const r = res0.response != null ? res0.response : (res0.choices && res0.choices[0] && res0.choices[0].message && res0.choices[0].message.content);
     const content = typeof r === 'string' ? r : JSON.stringify(r == null ? '' : r);
     return new Response(JSON.stringify({
       id: 'cf-vision', object: 'chat.completion', created: Math.floor(Date.now() / 1000), model,

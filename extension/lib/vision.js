@@ -24,7 +24,7 @@ const VISION_PROMPT = [
   '- If you cannot clearly identify any chat messages, return {"messages":[]}.',
 ].join('\n');
 
-const CF_DEFAULT_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
+const CF_DEFAULT_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 
 // cfg: { provider: 'cloudflare' | 'custom' | 'mock', apiKey, accountId, baseUrl, model, mockReply }
 // cloudflare: OpenAI-compatible endpoint https://api.cloudflare.com/client/v4/accounts/<accountId>/ai/v1
@@ -160,7 +160,7 @@ function parseTranscriptResponse(raw) {
 
 // Text compare: case/punctuation/emoji ignore (model aksar emoji gira deta hai).
 function normText(s) {
-  return String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 function textsMatch(a, b) {
   const x = normText(a), y = normText(b);
