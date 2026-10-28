@@ -178,7 +178,7 @@ function verifyLastMessage(transcript, domLastText) {
   if (!Array.isArray(transcript) || transcript.length === 0) return { ok: false, reason: 'vision ko screenshot mein koi message nahi dikha' };
   const tail = transcript.slice(-2);
   const hit = tail.some((t) => textsMatch(t, domLastText));
-  return hit ? { ok: true } : { ok: false, reason: 'DOM ka last message screenshot ke aakhri messages se match nahi hua' };
+  return hit ? { ok: true } : { ok: false, reason: 'DOM ka last message screenshot ke aakhri messages se match nahi hua (dom ' + String(domLastText || '').length + ' chars, screenshot mein ' + transcript.length + ' msgs, aakhri ' + String(tail[tail.length - 1] || '').length + ' chars)' };
 }
 
 root.CCVision = { VISION_TRANSCRIBE_PROMPT, buildTranscribeMessages, parseTranscriptResponse, normText, textsMatch, verifyLastMessage, VISION_PROMPT, CF_DEFAULT_MODEL, resolveVisionProvider, buildVisionMessages, parseVisionResponse, toChatMessages };
