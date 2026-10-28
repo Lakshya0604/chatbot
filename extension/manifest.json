@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Character Chatbot - local AI reply assistant",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "AI character reply assistant: consent-gated suggestions aur per-chat auto-replies. Apni Groq (ya OpenAI-compatible) API key se, ya hosted backend se. Kisi bhi site par AUTO setup (koi manual selection nahi, fail-closed). Telegram/WhatsApp adapters experimental.",
   "permissions": [
     "storage",

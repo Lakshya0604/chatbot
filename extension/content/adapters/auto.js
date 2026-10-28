@@ -155,6 +155,60 @@
     return { profile, matchedCount: inContainer.length };
   }
 
+  // ---------- VISION GATE (optional: sirf jab visionConfig set ho) ----------
+  // Visible chat-list area ka screenshot (crop) -> vision transcript -> DOM ke
+  // last incoming se match. Direction vision se KABHI decide nahi hoti (model ke
+  // left/right labels unreliable nikle) - sirf "ye sach mein last message hai" check.
+  function loadImage(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('screenshot decode fail'));
+      img.src = dataUrl;
+    });
+  }
+  function sendMsg(msg) {
+    return new Promise((resolve) => {
+      try { chrome.runtime.sendMessage(msg, (r) => resolve(r || { ok: false, error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || 'no response' })); }
+      catch (e) { resolve({ ok: false, error: String(e) }); }
+    });
+  }
+  function makeVisionVerify(profile) {
+    return async function visionVerify(domLastText) {
+      const cfg = await new Promise((r) => chrome.storage.local.get('visionConfig', (x) => r(x && x.visionConfig)));
+      console.log('CC_VISION gate start, cfg=' + (cfg ? cfg.provider : 'none'));
+      if (!cfg) return { ok: true, skipped: true };
+      let rows;
+      try { rows = Array.from(document.querySelectorAll(profile.rows)); } catch (e) { return { ok: false, reason: 'rows selector invalid' }; }
+      if (!rows.length) return { ok: false, reason: 'chat rows nahi mili' };
+      try { rows[rows.length - 1].scrollIntoView({ block: 'nearest' }); } catch (e) {}
+      await new Promise((r) => setTimeout(r, 400));
+      const vw = window.innerWidth, vh = window.innerHeight;
+      let L = vw, T = vh, R = 0, B = 0;
+      for (const row of rows) {
+        const b = row.getBoundingClientRect();
+        if (b.width < 2 || b.height < 2 || b.bottom < 0 || b.top > vh) continue;
+        L = Math.min(L, Math.max(0, b.left)); T = Math.min(T, Math.max(0, b.top));
+        R = Math.max(R, Math.min(vw, b.right)); B = Math.max(B, Math.min(vh, b.bottom));
+      }
+      if (R - L < 20 || B - T < 20) return { ok: false, reason: 'chat area screen par visible nahi' };
+      const pad = 8; L = Math.max(0, L - pad); T = Math.max(0, T - pad); R = Math.min(vw, R + pad); B = Math.min(vh, B + pad);
+      const cap = await sendMsg({ type: 'CC_CAPTURE_TAB' });
+      if (!cap || !cap.ok) return { ok: false, reason: 'screenshot nahi ban paya: ' + ((cap && cap.error) || 'unknown') };
+      const img = await loadImage(cap.data.dataUrl);
+      const sx = img.naturalWidth / vw, sy = img.naturalHeight / vh;
+      const cw = Math.round((R - L) * sx), ch = Math.round((B - T) * sy);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(cw, 1400); canvas.height = Math.round(ch * canvas.width / cw);
+      canvas.getContext('2d').drawImage(img, Math.round(L * sx), Math.round(T * sy), cw, ch, 0, 0, canvas.width, canvas.height);
+      const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+      const res = await sendMsg({ type: 'INTERPRET_CHAT_IMAGE', payload: { imageBase64: base64, mimeType: 'image/jpeg', mode: 'transcript', domLastText } });
+      if (!res || !res.ok) return { ok: false, reason: 'vision: ' + ((res && res.error) || 'unknown') };
+      console.log('CC_VISION verify=' + JSON.stringify(res.data.verify));
+      return res.data.verify || { ok: false, reason: 'verify result missing' };
+    };
+  }
+
   // ---------- engine wiring ----------
   function makeGetChatKey(profile) {
     return function getChatKey() {
@@ -206,6 +260,7 @@
         'Heads up: main is chat mein AI-drafted replies use kar raha/rahi hoon - tumhare messages ek AI provider ko process honge. ' +
         'Theek hai? Kabhi bhi "stop" likhoge to turant band.',
       aiMarker: '',
+      visionVerify: makeVisionVerify(profile),
     });
   }
 

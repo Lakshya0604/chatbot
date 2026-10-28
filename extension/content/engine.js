@@ -520,6 +520,25 @@
         return;
       }
 
+      // VISION GATE (optional, config.visionVerify): jab vision provider set ho to
+      // reply se pehle screenshot-transcript se confirm hota hai ki DOM ka padha
+      // hua last incoming sach mein screen par aakhri message hai. FAIL-CLOSED:
+      // vision fail/mismatch = reply nahi (kuch generate/send nahi hota).
+      if (typeof config.visionVerify === 'function' && !(opts && opts.followUp) && lastMsg.role === 'user') {
+        busy = true; // vision wait ke dauraan dusra generate overlap na kare
+        showBanner('Vision check chal raha hai...', null);
+        let vres;
+        try { vres = await config.visionVerify(lastMsg.content); } catch (e) { vres = { ok: false, reason: String(e && e.message || e) }; }
+        busy = false;
+        if (epoch !== myEpoch || (await isGlobalStopped())) return;
+        const st2 = await getChatState(chatKey);
+        if (!st2 || st2.state !== 'active') return;
+        if (!vres || vres.ok !== true) {
+          if (getChatKey() === chatKey) showBanner('Vision check fail (fail-closed, reply nahi bheji): ' + ((vres && vres.reason) || 'unknown'), null);
+          return;
+        }
+      }
+
       const character = (await storageGet('sync', 'character')) || {};
       const backendUrl = (await storageGet('sync', 'backendUrl')) || undefined;
 

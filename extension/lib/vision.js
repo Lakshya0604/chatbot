@@ -113,5 +113,73 @@ function toChatMessages(visionMessages) {
   return (visionMessages || []).map((m) => ({ role: m.side === 'left' ? 'user' : 'assistant', content: m.text }));
 }
 
-root.CCVision = { VISION_PROMPT, CF_DEFAULT_MODEL, resolveVisionProvider, buildVisionMessages, parseVisionResponse, toChatMessages };
+
+// ---------- TRANSCRIPT mode (v0.8.1) ----------
+// Live test 2026-10-28 (Cloudflare llama-3.2-11b-vision): model ka left/right
+// label UNRELIABLE nikla (same screenshot par 5 mein se 2 baar pehla message
+// "right"), isliye vision se DIRECTION kabhi decide nahi hoti. Direction DOM
+// (marker/alignment) se aati hai; vision sirf independent TRANSCRIPT deta hai
+// jisse hum verify karte hain ki DOM ne jo "last incoming" padha wahi screen par
+// sach mein sabse aakhri visible message hai.
+const VISION_TRANSCRIBE_PROMPT = [
+  'You are reading a screenshot of a chat conversation.',
+  'Transcribe every visible chat message bubble, top to bottom, as JSON and nothing else.',
+  'Rules:',
+  '- Output ONLY valid JSON: {"messages":[{"text":"..."}]}. No markdown, no explanation.',
+  '- Keep each message text exactly as seen (same language, same spelling, emoji included). Do not translate.',
+  '- One entry per bubble. Ignore headers, buttons, timestamps, typing indicators, sidebars.',
+  '- If you cannot clearly see any chat message, return {"messages":[]}.',
+].join('\n');
+
+function buildTranscribeMessages(imageBase64, mimeType) {
+  const m = buildVisionMessages(imageBase64, mimeType);
+  m[0].content[0].text = VISION_TRANSCRIBE_PROMPT;
+  return m;
+}
+
+function parseTranscriptResponse(raw) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (!text) throw new Error('vision parse failed: empty model output');
+  let jsonText = text;
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) jsonText = fence[1].trim();
+  else if (jsonText[0] !== '{') {
+    const a = jsonText.indexOf('{'), b = jsonText.lastIndexOf('}');
+    if (a >= 0 && b > a) jsonText = jsonText.slice(a, b + 1);
+  }
+  let parsed;
+  try { parsed = JSON.parse(jsonText); } catch (e) { throw new Error('vision parse failed: output JSON nahi hai (' + text.slice(0, 120) + ')'); }
+  const msgs = parsed && parsed.messages;
+  if (!Array.isArray(msgs)) throw new Error('vision parse failed: "messages" array nahi mila');
+  return msgs.map((m, i) => {
+    const t = m && typeof m.text === 'string' ? m.text.trim() : '';
+    if (!t) throw new Error('vision parse failed: message[' + i + '] text khaali');
+    return t;
+  });
+}
+
+// Text compare: case/punctuation/emoji ignore (model aksar emoji gira deta hai).
+function normText(s) {
+  return String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+function textsMatch(a, b) {
+  const x = normText(a), y = normText(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const sx = x.replace(/ /g, ''), sy = y.replace(/ /g, '');
+  if (sx.length >= 6 && sy.length >= 6 && (sx.includes(sy) || sy.includes(sx))) return true;
+  const tx = new Set(x.split(' ')), ty = new Set(y.split(' '));
+  let common = 0; tx.forEach((t) => { if (ty.has(t)) common++; });
+  return common / Math.max(tx.size, ty.size) >= 0.75;
+}
+// Gate: DOM ne jo last incoming padha wo vision transcript ke aakhri 2 messages mein hona chahiye.
+// FAIL-CLOSED: transcript khaali ya match nahi -> { ok:false, reason }.
+function verifyLastMessage(transcript, domLastText) {
+  if (!Array.isArray(transcript) || transcript.length === 0) return { ok: false, reason: 'vision ko screenshot mein koi message nahi dikha' };
+  const tail = transcript.slice(-2);
+  const hit = tail.some((t) => textsMatch(t, domLastText));
+  return hit ? { ok: true } : { ok: false, reason: 'DOM ka last message screenshot ke aakhri messages se match nahi hua' };
+}
+
+root.CCVision = { VISION_TRANSCRIBE_PROMPT, buildTranscribeMessages, parseTranscriptResponse, normText, textsMatch, verifyLastMessage, VISION_PROMPT, CF_DEFAULT_MODEL, resolveVisionProvider, buildVisionMessages, parseVisionResponse, toChatMessages };
 })(typeof self !== 'undefined' ? self : globalThis);

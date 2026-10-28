@@ -105,14 +105,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (!cfg) throw new Error('vision provider set nahi hai (visionConfig khaali)');
       const r = self.CCVision.resolveVisionProvider(cfg);
       key = r.apiKey || '';
+      const transcript = request.payload && request.payload.mode === 'transcript';
       let raw;
       if (r.provider === 'mock') {
         raw = r.mockReply;
       } else {
         raw = await self.CCLangChainVision.interpretChatImage({
-          baseUrl: r.baseUrl, apiKey: r.apiKey, model: r.model,
-          messages: self.CCVision.buildVisionMessages(imageBase64, mimeType),
+          baseUrl: r.baseUrl, apiKey: r.apiKey, model: r.model, provider: r.provider,
+          messages: transcript
+            ? self.CCVision.buildTranscribeMessages(imageBase64, mimeType)
+            : self.CCVision.buildVisionMessages(imageBase64, mimeType),
         });
+      }
+      if (transcript) {
+        const texts = self.CCVision.parseTranscriptResponse(raw);
+        const verifyRes = self.CCVision.verifyLastMessage(texts, String((request.payload && request.payload.domLastText) || ''));
+        // sirf counters (content nahi) - debugging/proof ke liye, device par
+        chrome.storage.local.get('visionStats', (st) => {
+          const v = (st && st.visionStats) || { calls: 0, verified: 0, rejected: 0 };
+          v.calls++; if (verifyRes.ok) v.verified++; else v.rejected++;
+          v.lastTranscriptLen = texts.length; v.lastAt = new Date().toISOString();
+          chrome.storage.local.set({ visionStats: v });
+        });
+        sendResponse({ ok: true, data: { transcript: texts, verify: verifyRes } });
+        return;
       }
       const messages = self.CCVision.parseVisionResponse(raw);
       if (messages.length === 0) throw new Error('vision: screenshot mein koi chat message clear nahi dikha');
@@ -179,3 +195,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   } catch (e) { /* restricted page */ }
 });
 
+
+
+// ---------- VISION: visible tab capture (sirf wahi tab jahan user ne toolbar click kiya / activeTab) ----------
+// Image sirf content script ke crop ke baad (chat list area) provider ko jaati hai.
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (!request || request.type !== 'CC_CAPTURE_TAB') return false;
+  const tab = sender && sender.tab;
+  if (!tab || typeof tab.windowId !== 'number') { sendResponse({ ok: false, error: 'tab nahi mila' }); return false; }
+  try {
+    chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 }, (dataUrl) => {
+      const err = chrome.runtime.lastError;
+      if (err || !dataUrl) sendResponse({ ok: false, error: String((err && err.message) || 'capture fail') + ' (toolbar icon dobara click karo - screenshot ke liye activeTab chahiye)' });
+      else sendResponse({ ok: true, data: { dataUrl } });
+    });
+  } catch (e) {
+    sendResponse({ ok: false, error: String(e) });
+  }
+  return true;
+});
