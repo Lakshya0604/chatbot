@@ -484,6 +484,25 @@
       if (!booted) { booted = true; }
     }
 
+    // ---------- vision invariant ----------
+    let visionToken = null;
+    const VISION_TOKEN_TTL_MS = 3 * 60 * 1000;
+    async function visionRequiredNow() {
+      try {
+        if (typeof config.visionRequired === 'function') return (await config.visionRequired()) !== false;
+        return typeof config.visionVerify === 'function';
+      } catch (e) { return true; } // unreadable config = fail closed (required)
+    }
+    // Auto-send se pehle: required ho to token isi chat + isi last incoming text + taza + single-use.
+    async function visionAllowsSend(chatKey) {
+      if (!(await visionRequiredNow())) return true;
+      const t = visionToken;
+      if (!t || t.chatKey !== chatKey || Date.now() - t.ts > VISION_TOKEN_TTL_MS) return false;
+      const msgs = readMessages();
+      const last = msgs[msgs.length - 1];
+      return !!last && last.role === 'user' && last.content === t.text;
+    }
+
     // ---------- reply generation ----------
     async function generateSuggestion(opts) {
       if (busy) return;
@@ -524,7 +543,15 @@
       // reply se pehle screenshot-transcript se confirm hota hai ki DOM ka padha
       // hua last incoming sach mein screen par aakhri message hai. FAIL-CLOSED:
       // vision fail/mismatch = reply nahi (kuch generate/send nahi hota).
-      if (typeof config.visionVerify === 'function' && !(opts && opts.followUp) && lastMsg.role === 'user') {
+      // INVARIANT: vision route chosen (visionRequired) => GATE MANDATORY, har send par,
+      // live storage se padha (init-time config par nahi). Token single-use + per-message.
+      const needVision = await visionRequiredNow();
+      visionToken = null;
+      if (needVision && !(opts && opts.followUp) && lastMsg.role === 'user') {
+        if (typeof config.visionVerify !== 'function') {
+          if (getChatKey() === chatKey) showBanner('Vision check fail (fail-closed, reply nahi bheji): gate available nahi', null);
+          return;
+        }
         busy = true; // vision wait ke dauraan dusra generate overlap na kare
         showBanner('Vision check chal raha hai...', null);
         let vres;
@@ -533,10 +560,14 @@
         if (epoch !== myEpoch || (await isGlobalStopped())) return;
         const st2 = await getChatState(chatKey);
         if (!st2 || st2.state !== 'active') return;
-        if (!vres || vres.ok !== true) {
+        if (!vres || vres.ok !== true || vres.skipped) {
           if (getChatKey() === chatKey) showBanner('Vision check fail (fail-closed, reply nahi bheji): ' + ((vres && vres.reason) || 'unknown'), null);
           return;
         }
+        visionToken = { chatKey, text: lastMsg.content, ts: Date.now() };
+      } else if (needVision) {
+        // follow-up (koi naya incoming nahi, gate nahi chala) -> vision mode mein generate nahi
+        return;
       }
 
       const character = (await storageGet('sync', 'character')) || {};
@@ -606,6 +637,10 @@
       if (await isGlobalStopped()) return; // beech mein Stop all -> send nahi
       const st = await getChatState(chatKey);
       if (!st || st.state !== 'active') return; // consent wapas/off -> send nahi
+      if (!(await visionAllowsSend(chatKey))) {
+        showBanner('Vision-verified nahi (ya purana) - auto-send nahi. Draft yahan hai, khud bhejo:', text);
+        return;
+      }
       const composer = getComposer();
       if (!composer || composerHasText(composer)) {
         await insertSuggestion(text, chatKey); // user type kar raha hai - draft only
@@ -628,9 +663,11 @@
       const stillOk = !(await isGlobalStopped())
         && getChatKey() === chatKey
         && (await getChatState(chatKey))?.state === 'active'
+        && (await visionAllowsSend(chatKey))
         && composerText(composer) === text.trim(); // composer mein SIRF wahi AI text ho (owner ne beech mein type nahi kiya)
       const btn = stillOk ? findSendButton(composer) : null;
       if (btn && !btn.disabled) {
+        visionToken = null; // single-use: agla message naya check maangega
         btn.click();
         showBanner('Auto-reply bhej di gayi (consent-active chat). Rokna ho to AI off ya Stop all.', null);
       } else {

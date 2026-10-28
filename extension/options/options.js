@@ -234,3 +234,62 @@ document.getElementById('pairBtn').addEventListener('click', async () => {
     st.textContent = 'Key hata di gayi. Ab hosted backend (pairing) ya nayi key use hogi.';
   });
 })();
+
+(function visionSetup() {
+  const $ = (id) => document.getElementById(id);
+  if (!$('visionSaveBtn')) return;
+  const st = $('visionStatus');
+  const keyHint = 'Token saved hai (chhupa hua). Badalna ho to nayi paste karo.';
+  function testImageBase64() {
+    const c = document.createElement('canvas');
+    c.width = 500; c.height = 140;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 500, 140);
+    g.fillStyle = '#e8e8e8'; g.fillRect(20, 30, 330, 70);
+    g.fillStyle = '#000'; g.font = 'bold 34px sans-serif'; g.fillText('hello vision test', 34, 77);
+    return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+  }
+  chrome.storage.local.get('visionConfig', (r) => {
+    const c = r.visionConfig;
+    if (c && c.apiKey) {
+      $('visionAccountId').value = c.accountId || '';
+      $('visionKey').placeholder = keyHint;
+      $('visionEnabled').checked = c.enabled !== false;
+      st.textContent = c.enabled !== false
+        ? 'Vision check ON: auto-send har message par screenshot-verify ke baad hi hoga.'
+        : 'Vision check OFF (tumne band kiya).';
+    }
+  });
+  $('visionSaveBtn').addEventListener('click', async () => {
+    try {
+      const prev = (await chrome.storage.local.get('visionConfig')).visionConfig || {};
+      const accountId = $('visionAccountId').value.trim();
+      const apiKey = $('visionKey').value.trim() || prev.apiKey || '';
+      if (!apiKey) throw new Error('pehle Cloudflare API token paste karo');
+      const cfg = { provider: 'cloudflare', accountId, apiKey, enabled: $('visionEnabled').checked };
+      self.CCVision.resolveVisionProvider(cfg); // validate (account id format etc.)
+      st.textContent = 'Test ho raha hai (1 vision call)...';
+      // Test ke dauran config save (background isi se padhta hai); fail par purana wapas.
+      await chrome.storage.local.set({ visionConfig: Object.assign({}, cfg, { enabled: true }) });
+      const res = await chrome.runtime.sendMessage({ type: 'INTERPRET_CHAT_IMAGE', payload: { imageBase64: testImageBase64(), mimeType: 'image/jpeg', mode: 'transcript', domLastText: 'hello vision test' } });
+      const ok = res && res.ok && res.data && res.data.verify && res.data.verify.ok === true;
+      if (!ok) {
+        if (prev.apiKey) await chrome.storage.local.set({ visionConfig: prev }); else await chrome.storage.local.remove('visionConfig');
+        throw new Error((res && res.error) || 'test image ka text vision ne match nahi kiya');
+      }
+      await chrome.storage.local.set({ visionConfig: cfg });
+      $('visionKey').value = '';
+      $('visionKey').placeholder = keyHint;
+      st.textContent = cfg.enabled
+        ? 'Vision connected: test pass. Ab auto-send har message par screenshot-verify ke baad hi hoga.'
+        : 'Vision key save hui par check OFF hai.';
+    } catch (e) {
+      st.textContent = 'Vision save nahi hua: ' + (e && e.message ? e.message : e);
+    }
+  });
+  $('visionClearBtn').addEventListener('click', async () => {
+    await chrome.storage.local.remove('visionConfig');
+    $('visionKey').value = ''; $('visionKey').placeholder = 'Workers AI token';
+    st.textContent = 'Vision hata diya. Ab purani (bina vision) auto-send safety chalegi.';
+  });
+})();

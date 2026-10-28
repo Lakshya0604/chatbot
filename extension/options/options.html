@@ -39,6 +39,22 @@
       <p class="hint">Test mein ek chhota sa asli AI call hota hai (tumhari apni key ka thoda usage).</p>
     </section>
 
+    <section class="card connect" id="visionCard">
+      <h2><span class="step">1v</span> Vision check (free Cloudflare Workers AI) - auto-send se pehle screenshot verify</h2>
+      <p class="hint">Jab ye ON hota hai to auto-send SIRF tab hota hai jab screenshot se confirm ho ki jo last message DOM se padha wahi screen par aakhri hai. Check fail / key galat / screenshot na bane = <b>auto-send nahi</b> (draft hi milta hai). Vision se message ki <b>direction</b> (kaun si tumhari/unki) decide nahi hoti. Screenshot sirf chat-list area ka crop hota hai aur seedha Cloudflare ko jaata hai. Cloudflare free plan ke limits lagte hain (koi card nahi). Token sirf is computer ke Chrome mein save hota hai (sync nahi), kabhi ZIP/chat mein mat bhejo. Screenshot ke liye us site par toolbar icon click karna padta hai (activeTab).</p>
+      <label>Cloudflare Account ID (32 hex)
+        <input id="visionAccountId" type="text" placeholder="0123456789abcdef0123456789abcdef" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>Cloudflare Workers AI API token
+        <input id="visionKey" type="password" placeholder="Workers AI token" autocomplete="off" spellcheck="false" />
+      </label>
+      <label><input id="visionEnabled" type="checkbox" checked /> Vision check ON (recommended). OFF karne par bina vision ke purani auto-send safety chalti hai.</label>
+      <button id="visionSaveBtn" type="button">Vision save karo + test</button>
+      <button id="visionClearBtn" type="button" data-variant="secondary">Vision hatao</button>
+      <p class="hint" id="visionStatus" role="status"></p>
+      <p class="hint">Test mein 1 chhota asli vision call hota hai (free plan ke ~11 neurons).</p>
+    </section>
+
     <section class="card connect">
       <h2><span class="step">1b</span> Ya hosted backend se connect karo (pairing code)</h2>
       <p class="hint">Pairing code ek hi baar paste karna hai (30 minute mein expire hota hai). Hosted server so raha ho to pehli baar 1 minute tak lag sakta hai.</p>
@@ -189,6 +205,7 @@
     <span id="status"></span>
   </main>
   <script src="../lib/ai.js"></script>
+  <script src="../lib/vision.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

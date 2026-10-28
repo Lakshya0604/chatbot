@@ -173,11 +173,24 @@
       catch (e) { resolve({ ok: false, error: String(e) }); }
     });
   }
+  // Vision route "chosen" = visionConfig maujood aur enabled !== false. Har check par LIVE storage se.
+  // Read error = required (fail closed).
+  function visionRequired() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get('visionConfig', (x) => {
+          if (chrome.runtime.lastError) return resolve(true);
+          const c = x && x.visionConfig;
+          resolve(!!c && c.enabled !== false);
+        });
+      } catch (e) { resolve(true); }
+    });
+  }
   function makeVisionVerify(profile) {
     return async function visionVerify(domLastText) {
       const cfg = await new Promise((r) => chrome.storage.local.get('visionConfig', (x) => r(x && x.visionConfig)));
       console.log('CC_VISION gate start, cfg=' + (cfg ? cfg.provider : 'none'));
-      if (!cfg) return { ok: true, skipped: true };
+      if (!cfg) return { ok: false, reason: 'vision config nahi mili' };
       let rows;
       try { rows = Array.from(document.querySelectorAll(profile.rows)); } catch (e) { return { ok: false, reason: 'rows selector invalid' }; }
       if (!rows.length) return { ok: false, reason: 'chat rows nahi mili' };
@@ -261,6 +274,7 @@
         'Theek hai? Kabhi bhi "stop" likhoge to turant band.',
       aiMarker: '',
       visionVerify: makeVisionVerify(profile),
+      visionRequired,
     });
   }
 
