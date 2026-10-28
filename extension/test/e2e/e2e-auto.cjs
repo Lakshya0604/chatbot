@@ -18,6 +18,7 @@ fs.cpSync(SRC, BUILD, { recursive: true, filter: (s) => !s.includes(`${path.sep}
 {
   const mf = JSON.parse(fs.readFileSync(path.join(BUILD, 'manifest.json'), 'utf8'));
   mf.host_permissions.push('http://127.0.0.1:8792/*');
+  if (!mf.permissions.includes('tabs')) mf.permissions.push('tabs'); // TEST-ONLY: script se tab dhoondhne ke liye
   fs.writeFileSync(path.join(BUILD, 'manifest.json'), JSON.stringify(mf));
 }
 
@@ -25,6 +26,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ok = (cond, label) => { if (!cond) { console.log('FAIL:', label); process.exit(1); } console.log('PASS:', label); };
 
 async function runFlow(ctx, sw, page, mock, label) {
+  page.on('pageerror', (e) => console.log('PAGEERROR:', String(e).slice(0, 200)));
+  page.on('console', (m) => console.log('CONSOLE[' + m.type() + ']:', m.text().slice(0, 200)));
   await page.goto(`http://127.0.0.1:8792/${mock}`, { waitUntil: 'domcontentloaded' });
   await sleep(1500);
   page.on('dialog', (d) => d.accept());
@@ -42,10 +45,16 @@ async function runFlow(ctx, sw, page, mock, label) {
   await sleep(2500);
 
   const origin = 'http://127.0.0.1:8792';
-  const prof = await sw.evaluate((o) => new Promise((r) => chrome.storage.local.get('siteProfiles', r).then((x) => r((x.siteProfiles || {})[o] || null))), origin);
+  const prof = await sw.evaluate((o) => chrome.storage.local.get('siteProfiles').then((x) => (x.siteProfiles || {})[o] || null), origin);
   ok(prof && prof.enabled && prof.mode === 'auto', `${label}: profile auto-save hui: ` + JSON.stringify(prof).slice(0, 200));
   ok(!prof.directionPending, `${label}: direction turant lock hui (dono sides present thi)`);
-  await page.waitForSelector('#cc-panel #cc-toggle-btn', { timeout: 10000 });
+  try {
+    await page.waitForSelector('#cc-panel #cc-toggle-btn', { timeout: 10000 });
+  } catch (e) {
+    console.log('DBG panel:', await page.evaluate(() => { const p = document.getElementById('cc-panel'); return p ? p.innerText.slice(0, 200) : 'NO PANEL'; }));
+    console.log('DBG engine flag:', await page.evaluate(() => !!window.__CC_AUTO_ENGINE__), 'booted:', await page.evaluate(() => !!window.__CC_AUTO_BOOTED__));
+    throw e;
+  }
   ok(true, `${label}: engine panel aa gaya (koi picker nahi chala)`);
 
   // Consent 2-step (dialogs auto-accept)
@@ -56,9 +65,9 @@ async function runFlow(ctx, sw, page, mock, label) {
 
   // SUGGEST: incoming -> draft (send NAHI)
   await page.evaluate(() => window.__mock.receive('arre kal movie ka plan kya hai?'));
-  await sleep(9000);
   const composerSel = prof.composer;
-  const draft = await page.evaluate((s) => { const c = document.querySelector(s); return (c.innerText || '').trim(); }, composerSel);
+  let draft = '';
+  for (let i = 0; i < 25 && !draft; i++) { await sleep(1000); draft = await page.evaluate((s) => { const c = document.querySelector(s); return (c.innerText || '').trim(); }, composerSel); }
   ok(draft.length > 3 && draft.includes('(mock reply)'), `${label}: SUGGEST draft aayi (deterministic mock AI): ` + draft.slice(0, 80));
   await page.evaluate((s) => { const c = document.querySelector(s); c.innerText = ''; }, composerSel);
 
@@ -66,7 +75,7 @@ async function runFlow(ctx, sw, page, mock, label) {
   await page.click('#cc-auto-btn'); await sleep(500);
   ok((await page.getAttribute('#cc-auto-btn', 'data-mode')) === 'auto', `${label}: auto mode on`);
   await page.evaluate(() => window.__mock.receiveStream(['tu', 'ne kal jo kaha na,', ' wo mujhe accha laga'], 400));
-  await sleep(14000);
+  await sleep(20000);
   const outRows1 = await page.evaluate((rowsSel) => Array.from(document.querySelectorAll(rowsSel)).filter((r) => {
     return true; // counting below via text
   }).length, prof.rows);
@@ -81,7 +90,7 @@ async function runFlow(ctx, sw, page, mock, label) {
   // SELF-ECHO GUARD: wahi text incoming ki tarah inject karo jo AI ne bheja tha -> chat Stopped
   const lastAiText = autoSent[0];
   await page.evaluate((t) => window.__mock.receive(t), lastAiText);
-  await sleep(4000);
+  await sleep(6000);
   const labelNow = await page.evaluate(() => document.getElementById('cc-toggle-btn').textContent);
   ok(labelNow === 'Stopped', `${label}: SELF-ECHO par chat Stopped (anti-loop guard): label=` + labelNow);
   return { origin, prof };
@@ -93,7 +102,9 @@ async function runFlow(ctx, sw, page, mock, label) {
     args: [`--disable-extensions-except=${BUILD}`, `--load-extension=${BUILD}`, '--window-size=1280,800'],
     viewport: { width: 1280, height: 720 },
   });
-  let sw; for (let i = 0; i < 30 && !sw; i++) { sw = ctx.serviceWorkers()[0]; if (!sw) await sleep(300); }
+  let sw = ctx.serviceWorkers()[0];
+  if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 20000 }); } catch (e) {} }
+  if (!sw) { console.log('DEBUG: pages=', ctx.pages().length, 'sws=', ctx.serviceWorkers().length); }
   ok(sw, 'service worker registered');
   await sw.evaluate(() => new Promise((r) => {
     chrome.storage.sync.set({

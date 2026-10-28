@@ -69,6 +69,10 @@
   }
 
   // ---------- chat title (identity) ----------
+  // Sirf page ke LIVE header/heading se title. document.title fallback JAAN-BOOJH
+  // kar nahi: wo static hota hai, chat switch par nahi badalta - aur runtime
+  // re-query (makeGetChatKey) use dhoondh nahi paati (mismatch = fail-closed boot).
+  // Live header na mile to null -> single-chat page ki URL hi identity hai.
   function findChatTitle(listContainer) {
     let node = listContainer;
     for (let d = 0; d <= 6 && node && node !== document.body; d++, node = node.parentElement) {
@@ -78,8 +82,7 @@
         if (t && t.length <= 80) return t;
       }
     }
-    const t = String(document.title || '').trim();
-    return t && t.length <= 80 ? t : null;
+    return null;
   }
 
   // ---------- send button (composer ke aas-paas) ----------
