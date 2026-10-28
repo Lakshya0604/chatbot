@@ -13,7 +13,8 @@
     "http://127.0.0.1:8787/*",
     "http://localhost:8787/*",
     "https://*.onrender.com/*",
-    "https://api.groq.com/*"
+    "https://api.groq.com/*",
+    "https://api.cloudflare.com/*"
   ],
   "background": {
     "service_worker": "background.js"

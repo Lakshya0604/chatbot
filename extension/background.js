@@ -10,6 +10,11 @@
 // scripts extension storage tak pahunch hi nahi sakte.
 
 importScripts('lib/ai.js');
+importScripts('lib/vision.js');
+// MV3 SW mein importScripts sirf startup evaluation mein reliably chalta hai
+// (runtime importScripts fresh files ke liye fail hota hai - tested), isliye
+// LangChain bundle yahan statically load hota hai.
+importScripts('lib/vendor/langchain-vision.bundle.js');
 
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8787';
 const REQUEST_TIMEOUT_MS = 120000; // hosted free server so ke jaagne mein der laga sakta hai // AI reply der se aaye to hamesha ke liye hang na ho
@@ -78,6 +83,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
   });
   }
+});
+
+
+// ---------- VISION: chat screenshot -> structured messages (consent-gated callers only) ----------
+// visionConfig storage.local mein: { provider: 'cloudflare'|'custom'|'mock', apiKey, accountId, baseUrl, model }
+// Key sirf is device par; error messages se key scrub hoti hai. Image crop +
+// bhejne ka decision caller ka hai (consent-active chat only).
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (!request || request.type !== 'INTERPRET_CHAT_IMAGE') return false;
+  const imageBase64 = String((request.payload && request.payload.imageBase64) || '');
+  const mimeType = String((request.payload && request.payload.mimeType) || 'image/jpeg');
+  if (!imageBase64 || imageBase64.length > 14 * 1024 * 1024) {
+    sendResponse({ ok: false, error: 'image missing ya bahut badi (max ~10MB)' });
+    return false;
+  }
+  chrome.storage.local.get('visionConfig', async (res) => {
+    const cfg = res && res.visionConfig;
+    let key = '';
+    try {
+      if (!cfg) throw new Error('vision provider set nahi hai (visionConfig khaali)');
+      const r = self.CCVision.resolveVisionProvider(cfg);
+      key = r.apiKey || '';
+      let raw;
+      if (r.provider === 'mock') {
+        raw = r.mockReply;
+      } else {
+        raw = await self.CCLangChainVision.interpretChatImage({
+          baseUrl: r.baseUrl, apiKey: r.apiKey, model: r.model,
+          messages: self.CCVision.buildVisionMessages(imageBase64, mimeType),
+        });
+      }
+      const messages = self.CCVision.parseVisionResponse(raw);
+      if (messages.length === 0) throw new Error('vision: screenshot mein koi chat message clear nahi dikha');
+      sendResponse({ ok: true, data: { messages, chat: self.CCVision.toChatMessages(messages) } });
+    } catch (err) {
+      const msg = String((err && err.message) || err).split(key || '\u0000').join('[key]').slice(0, 300);
+      sendResponse({ ok: false, error: msg });
+    }
+  });
+  return true;
 });
 
 // ---------- CUSTOM mode + form-fill entry points (user-controlled, per-site) ----------
