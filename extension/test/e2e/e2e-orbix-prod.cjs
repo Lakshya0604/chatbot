@@ -82,6 +82,7 @@ const rd = f => fs.readFileSync(f, 'utf8').trim();
     // login
     const page = await ctx.newPage();
     page.on('dialog', async d => { await d.accept(); });
+    page.on('console', m => { const t = m.text(); if (/CC_/.test(t)) log('console>', t.slice(0, 200)); });
     await page.goto('https://orbix-video-ly.web.app/#/login', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('input', { timeout: 90000 });
     for (const el of await page.$$('input')) {
