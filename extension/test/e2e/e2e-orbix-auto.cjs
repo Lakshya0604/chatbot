@@ -81,19 +81,28 @@ function assert(cond, msg, extra) {
     await page.waitForSelector('textarea', { timeout: 120000 });
     log('login success, app home open');
 
-    // 3) Bootstrap both directions: owner message -> Orbix bot reply.
-    await page.fill('textarea', 'hi orbix, ek line mein bata tu kya kar sakta hai');
-    await page.keyboard.press('Enter');
-    let gotReply = false;
-    for (let i = 0; i < 60 && !gotReply; i++) {
-      await sleep(2000);
-      gotReply = await page.evaluate(() => {
-        const bubbles = Array.from(document.querySelectorAll('div, p, span, li'))
-          .filter(e => e.children.length <= 2 && (e.textContent || '').trim().length > 20);
-        return bubbles.some(e => !/hi orbix, ek line/.test(e.textContent || ''));
-      });
-    }
-    assert(gotReply, 'Orbix bot replied (both directions present)');
+    // 3) Bootstrap BOTH exchanges: auto-detect ko kam se kam 3 rows chahiye,
+    //    isliye 2 owner messages + 2 bot replies (4 rows) pehle laao.
+    const sendOwner = async (text) => {
+      await page.fill('textarea', text);
+      await page.keyboard.press('Enter');
+    };
+    const waitBotReply = async (marker, timeoutS) => {
+      for (let i = 0; i < timeoutS / 2; i++) {
+        await sleep(2000);
+        const got = await page.evaluate((m) => {
+          const bubbles = Array.from(document.querySelectorAll('.msg.assistant .answer, .answer, div, p'))
+            .filter(e => (e.textContent || '').trim().length > 20);
+          return bubbles.some(e => !(e.textContent || '').includes(m));
+        }, marker);
+        if (got) return true;
+      }
+      return false;
+    };
+    await sendOwner('hi orbix, ek line mein bata tu kya kar sakta hai');
+    assert(await waitBotReply('hi orbix, ek line', 90), 'Orbix bot reply #1');
+    await sendOwner('accha ek chhota sa hindi joke sunao');
+    assert(await waitBotReply('accha ek chhota', 90), 'Orbix bot reply #2 (>=3 message rows present)');
     await sleep(2000);
 
     // 4) Mirror toolbar click from the SW (same API calls background.js makes).

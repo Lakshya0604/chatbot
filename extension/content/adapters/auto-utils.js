@@ -66,9 +66,9 @@
 
   // Ek container ke "row-like" bachche: text wale direct children jinki count
   // kam se kam minRows ho aur aadhe se zyada ka tag same ho.
-  function rowLikeChildren(container, minRows) {
+  function rowLikeChildren(container, minRows, exclude) {
     const kids = Array.from(container.children || []).filter((c) =>
-      textOf(c).trim().length > 0);
+      textOf(c).trim().length > 0 && !(exclude && exclude(c)));
     if (kids.length < minRows) return null;
     // Aadhe se zyada bachche controls hain to ye message list nahi (nav/toolbar hai).
     const controlCount = kids.filter(isControlRow).length;
@@ -97,13 +97,11 @@
     for (let depth = 0; depth <= 8 && node && node !== doc.body; depth++, node = node.parentElement) {
       const cands = [node].concat(Array.from(node.querySelectorAll('div, ol, ul, section, main') || []));
       for (const c of cands) {
-        const rows = rowLikeChildren(c, minRows);
+        // Composer wali branch ko row counting se PEHLE exclude karo - warna
+        // tag-majority filter use chhupa deta hai aur bagal ke layout blocks
+        // (sharebar/thread jaise) galat "rows" ban jaate hain (Orbix bug).
+        const rows = rowLikeChildren(c, minRows, (k) => k === composer || k.contains(composer));
         if (!rows) continue;
-        // Composer khud list ke andar na ho (composer message row nahi hai).
-        if (c.contains(composer)) {
-          // container composer ka ancestor hai - theek hai, par rows mein composer wali branch na aaye
-          if (rows.some((r) => r.contains(composer))) continue;
-        }
         if (inNavLike(c)) continue; // nav/tablist/toolbar/header kabhi message list nahi
         const rc = measure(c);
         if (rc.width <= 0 || rc.height <= 0) continue;

@@ -201,3 +201,58 @@ test('isIncomingByAlign/isOutgoingByAlign: clear sides detect, center/system row
   rects.set(bubble, { left: 0, width: 0, top: 0, height: 0 });
   assert.equal(w.ChatAuto.isIncomingByAlign(row, list, 'right', measurer(rects)), false);
 });
+
+test('findMessageList: composer wali branch pehle exclude hoti hai - sharebar+thread galat rows nahi bante (Orbix MAIN.center regression)', (t) => {
+  // Real Orbix: main.center ke direct kids = sharebar + thread(2 msgs) + form.composer.
+  // Purane code mein tag filter form ko hata deta tha aur sharebar+thread "rows"
+  // ban jaate the; deriveRowSelector phir '#root > div' jaisi garbage deta tha.
+  // Ab composer branch row-counting se pehle exclude hoti hai -> sirf 2 kids
+  // bachte hain -> minRows se reject -> fail-closed (galat list nahi).
+  const w = makeWorld(
+    '<div id="root"><div id="sidebar"></div><main class="center" id="mainc">' +
+    '<div class="sharebar"><button>Share this chat</button><button>Copy chat</button></div>' +
+    '<div class="thread">' +
+    '<div class="msg user"><div class="bubble">hi</div></div>' +
+    '<div class="msg assistant"><div class="answer">Namaste, main Orbix hoon - kaise madad karun</div></div>' +
+    '</div>' +
+    '<form class="composer"><button>Send</button><textarea id="composer"></textarea></form>' +
+    '</main></div>', t);
+  const $ = (s) => w.document.querySelector(s);
+  const rects = new Map([
+    [$('#composer'), { left: 380, width: 700, top: 640, height: 44 }],
+    [$('form.composer'), { left: 360, width: 920, top: 630, height: 60 }],
+    [$('.thread'), { left: 370, width: 900, top: 120, height: 300 }],
+    [$('.sharebar'), { left: 370, width: 900, top: 70, height: 40 }],
+    [$('#mainc'), { left: 360, width: 920, top: 60, height: 640 }],
+    [$('#root'), { left: 0, width: 1280, top: 0, height: 720 }],
+    [w.document.body, { left: 0, width: 1280, top: 0, height: 720 }],
+  ]);
+  const list = w.ChatAuto.findMessageList(w.document, $('#composer'), measurer(rects));
+  assert.equal(list, null, '2-message thread + sharebar galat list nahi banti (fail-closed)');
+});
+
+test('findMessageList: composer sibling branch exclude hone par bhi 3+ message wali thread milti hai', (t) => {
+  const w = makeWorld(
+    '<main class="center" id="mainc">' +
+    '<div class="sharebar"><button>Share</button><button>Copy</button></div>' +
+    '<div class="thread">' +
+    '<div class="msg user"><div class="bubble">pehla message kaafi lamba text yahan</div></div>' +
+    '<div class="msg assistant"><div class="answer">doosra message ka jawab yahan aata hai</div></div>' +
+    '<div class="msg user"><div class="bubble">teesra message bhi present hai ab</div></div>' +
+    '</div>' +
+    '<form class="composer"><button>Send</button><textarea id="composer"></textarea></form>' +
+    '</main>', t);
+  const $ = (s) => w.document.querySelector(s);
+  const rects = new Map([
+    [$('#composer'), { left: 380, width: 700, top: 640, height: 44 }],
+    [$('form.composer'), { left: 360, width: 920, top: 630, height: 60 }],
+    [$('.thread'), { left: 370, width: 900, top: 120, height: 480 }],
+    [$('.sharebar'), { left: 370, width: 900, top: 70, height: 40 }],
+    [$('#mainc'), { left: 360, width: 920, top: 60, height: 640 }],
+    [w.document.body, { left: 0, width: 1280, top: 0, height: 720 }],
+  ]);
+  const list = w.ChatAuto.findMessageList(w.document, $('#composer'), measurer(rects));
+  assert.ok(list, 'list mili');
+  assert.equal(list.container.className, 'thread');
+  assert.equal(list.rows.length, 3);
+});

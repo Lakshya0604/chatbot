@@ -157,3 +157,4 @@ test('per-chat id in aria-label -> stable prefix selector', (t) => {
   assert.equal(sel, 'ol[aria-label^="Conversation"] > li');
   assert.equal(w.document.querySelectorAll(sel).length, 2);
 });
+
