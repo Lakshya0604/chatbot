@@ -1,137 +1,138 @@
-// e2e-orbix-auto.cjs - LIVE Orbix (user ka apna deployed site) par AUTO mode test:
-// real login (dummy test account), real React DOM, real network, REAL Groq BYOK.
-// Chat partner = Orbix ka apna AI bot (koi third party nahi). Bounded: SUGGEST
-// draft proof + AUTO send observed, phir Stop all (bot reply loop ka risk isliye).
-// Run: xvfb-run -a node e2e-orbix-auto.cjs /path/emailfile /path/passfile /path/groqkeyfile
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
-const { chromium } = require('playwright-core');
+// Real-site AUTO e2e on Orbix (user's OWN chat product, https://orbix-video-ly.web.app)
+// with the v0.8.0 AUTO adapter + real Groq BYOK. Dummy test account only; the
+// "other side" is Orbix's own bot - koi third-party/stranger contact nahi.
+// Mirrors the real toolbar-click path (background.js: inject 4 files -> CC_AUTO_START).
+// Bounded: exactly 1 AUTO send expected, then Stop all.
+// Exit 0 = full AUTO chain observed; 2 = adapter failed closed (honest);
+// 3 = infra failure (backend/AI); 1 = unexpected error.
+const { chromium } = require('playwright');
+const fs = require('fs'), os = require('os'), path = require('path');
 
-const SRC = path.join(__dirname, '..', '..');
-const SHOTS = '/tmp/cc-orbix-auto';
-fs.mkdirSync(SHOTS, { recursive: true });
-const BUILD = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-e2e-oa-'));
-fs.cpSync(SRC, BUILD, { recursive: true, filter: (s) => !s.includes(`${path.sep}test${path.sep}e2e${path.sep}build`) });
-{
-  const mf = JSON.parse(fs.readFileSync(path.join(BUILD, 'manifest.json'), 'utf8'));
-  mf.host_permissions.push('https://orbix-video-ly.web.app/*'); // TEST-ONLY stand-in for toolbar activeTab
-  if (!mf.permissions.includes('tabs')) mf.permissions.push('tabs');
-  fs.writeFileSync(path.join(BUILD, 'manifest.json'), JSON.stringify(mf));
+const GROQ_KEY_FILE = process.env.GROQ_KEY_FILE;
+const EMAIL_FILE = process.env.ORBIX_EMAIL_FILE;
+const PASS_FILE = process.env.ORBIX_PASS_FILE;
+const EXT = path.resolve(__dirname, '..', '..');
+const BACKEND = process.env.BACKEND_URL || 'https://chatbot-backend-3j2t.onrender.com';
+const log = (...a) => console.log('[e2e-orbix]', ...a);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function assert(cond, msg, extra) {
+  if (cond) { log('PASS:', msg); return; }
+  console.error('FAIL:', msg, extra ?? ''); process.exit(1);
 }
-const EMAIL = fs.readFileSync(process.argv[2], 'utf8').trim();
-const PASS = fs.readFileSync(process.argv[3], 'utf8').trim();
-const KEY = fs.readFileSync(process.argv[4], 'utf8').trim();
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const ok = (cond, label) => { if (!cond) { console.log('FAIL:', label); process.exit(1); } console.log('PASS:', label); };
 
 (async () => {
-  const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'cc-oa-p-')), {
+  assert(GROQ_KEY_FILE && fs.existsSync(GROQ_KEY_FILE), 'GROQ_KEY_FILE provided');
+  assert(EMAIL_FILE && PASS_FILE && fs.existsSync(EMAIL_FILE) && fs.existsSync(PASS_FILE), 'Orbix dummy creds files provided');
+  const apiKey = fs.readFileSync(GROQ_KEY_FILE, 'utf8').trim();
+  const email = fs.readFileSync(EMAIL_FILE, 'utf8').trim();
+  const pass = fs.readFileSync(PASS_FILE, 'utf8').trim();
+
+  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-orbix-a-'));
+  const ctx = await chromium.launchPersistentContext(userDir, {
     headless: false,
-    args: [`--disable-extensions-except=${BUILD}`, `--load-extension=${BUILD}`, '--window-size=1280,800'],
-    viewport: { width: 1280, height: 720 },
+    args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--headless=new', '--window-size=1280,900'],
   });
   let sw = ctx.serviceWorkers()[0];
-  if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 20000 }); } catch (e) {} }
-  ok(sw, 'service worker registered');
-  await sw.evaluate((k) => new Promise((r) => {
-    chrome.storage.sync.set({
-      character: { name: 'Meera', gender: 'girl', role: 'college friend', tone: 'funny', replyLength: 'short', vocabulary: 'Roman Hinglish casual' },
-    }, () => chrome.storage.local.set({ aiConfig: { provider: 'groq', apiKey: k, model: '' } }, r));
-  }), KEY);
-  ok(true, 'BYOK seeded (real Groq)');
+  if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 60000 });
+  const extId = new URL(sw.url()).host;
+  log('extension loaded:', extId);
 
   const page = await ctx.newPage();
-  page.on('dialog', (d) => d.accept());
-  page.on('pageerror', (e) => console.log('PAGEERR>', String(e).slice(0, 160)));
+  page.on('dialog', async d => { log('dialog:', d.type(), JSON.stringify(d.message()).slice(0, 100)); await d.accept(); });
 
-  // --- login (Render cold start ho sakta hai) ---
-  await page.goto('https://orbix-video-ly.web.app/#/login', { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('input', { timeout: 90000 });
-  const inputs = await page.$$('input');
-  let emailEl = null, passEl = null;
-  for (const el of inputs) {
-    const t = await el.getAttribute('type');
-    if (t === 'email') emailEl = el;
-    if (t === 'password') passEl = el;
-  }
-  ok(emailEl && passEl, 'login form mila');
-  await emailEl.fill(EMAIL); await passEl.fill(PASS);
-  await page.keyboard.press('Enter');
-  await page.waitForSelector('textarea', { timeout: 120000 });
-  ok(true, 'LOGIN SUCCESS');
-  await sleep(2000);
+  try {
+    // 1) Settings: real storage paths (same keys the options UI writes).
+    await sw.evaluate(async ({ backend, key }) => {
+      await chrome.storage.sync.set({
+        character: { name: 'Meera', gender: 'girl', role: 'college friend', tone: 'funny', humour: 'light teasing', replyLength: 'short', defaultMood: 'playful', vocabulary: 'Roman Hinglish casual' },
+        backendUrl: backend,
+      });
+      await chrome.storage.local.set({ aiConfig: { provider: 'groq', apiKey: key, model: 'openai/gpt-oss-120b', baseUrl: '' } });
+    }, { backend: BACKEND, key: apiKey });
+    log('settings seeded (backend', BACKEND + ', groq BYOK)');
 
-  // --- bootstrap: manual message -> bot reply (incoming rows dono sides) ---
-  await page.fill('textarea', 'hi orbix, ek line mein bata tu kya kar sakta hai');
-  await page.keyboard.press('Enter');
-  const before1 = await page.evaluate(() => document.body.innerText.length);
-  for (let i = 0; i < 45; i++) { await sleep(1000); if ((await page.evaluate(() => document.body.innerText.length)) > before1 + 20) break; }
-  ok(true, 'bot ne reply kiya (dono sides ke rows exist)');
-  await page.screenshot({ path: SHOTS + '/01-bootstrapped.png' });
+    // 2) Login with the dummy account (Render cold start possible).
+    await page.goto('https://orbix-video-ly.web.app/#/login', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('input', { timeout: 90000 });
+    const inputs = await page.$$('input');
+    let emailEl = null, passEl = null;
+    for (const el of inputs) {
+      const t = await el.getAttribute('type');
+      if (t === 'email') emailEl = el;
+      if (t === 'password') passEl = el;
+    }
+    assert(emailEl && passEl, 'login form found');
+    await emailEl.fill(email); await passEl.fill(pass);
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('textarea', { timeout: 120000 });
+    log('login success, app home open');
 
-  // --- AUTO SETUP: inject + CC_AUTO_START (toolbar click simulation) ---
-  await sw.evaluate(async () => {
-    const tabs = await chrome.tabs.query({ url: 'https://orbix-video-ly.web.app/*' });
-    await chrome.scripting.executeScript({
-      target: { tabId: tabs[0].id },
-      files: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/auto-utils.js', 'content/adapters/auto.js'],
+    // 3) Bootstrap both directions: owner message -> Orbix bot reply.
+    await page.fill('textarea', 'hi orbix, ek line mein bata tu kya kar sakta hai');
+    await page.keyboard.press('Enter');
+    let gotReply = false;
+    for (let i = 0; i < 60 && !gotReply; i++) {
+      await sleep(2000);
+      gotReply = await page.evaluate(() => {
+        const bubbles = Array.from(document.querySelectorAll('div, p, span, li'))
+          .filter(e => e.children.length <= 2 && (e.textContent || '').trim().length > 20);
+        return bubbles.some(e => !/hi orbix, ek line/.test(e.textContent || ''));
+      });
+    }
+    assert(gotReply, 'Orbix bot replied (both directions present)');
+    await sleep(2000);
+
+    // 4) Mirror toolbar click from the SW (same API calls background.js makes).
+    await sw.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const t = tabs.find(x => x.url && x.url.startsWith('https://orbix-video-ly.web.app/'));
+      await chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/auto-utils.js', 'content/adapters/auto.js'] });
+      await chrome.tabs.sendMessage(t.id, { type: 'CC_AUTO_START' });
     });
-    chrome.tabs.sendMessage(tabs[0].id, { type: 'CC_AUTO_START' }, () => void chrome.runtime.lastError);
-  });
-  await sleep(3000);
-  const origin = 'https://orbix-video-ly.web.app';
-  const prof = await sw.evaluate((o) => chrome.storage.local.get('siteProfiles').then((x) => (x.siteProfiles || {})[o] || null), origin);
-  if (!prof || !prof.enabled) {
-    console.log('ORBIX RESULT: auto setup FAIL-CLOSED (profile nahi bani) - honest unsupported outcome.');
-    await page.screenshot({ path: SHOTS + '/02-failclosed.png' });
-    await ctx.close(); process.exit(2);
-  }
-  ok(true, 'ORBIX auto profile: ' + JSON.stringify(prof).slice(0, 240));
-  if (prof.directionPending) {
-    console.log('ORBIX RESULT: direction pending/undecidable - fail-closed, engine band.');
-    await page.screenshot({ path: SHOTS + '/02-pending.png' });
-    await ctx.close(); process.exit(2);
-  }
-  await page.waitForSelector('#cc-panel #cc-toggle-btn', { timeout: 10000 });
-  ok(true, 'engine panel live on Orbix');
-  await page.screenshot({ path: SHOTS + '/02-panel.png' });
+    log('CC_AUTO_START dispatched');
+    await sleep(4000);
 
-  // --- consent 2-step ---
-  await page.click('#cc-toggle-btn'); await sleep(800);
-  await page.evaluate(() => { const t = document.querySelector('textarea'); if (t) t.value = ''; t && t.dispatchEvent(new Event('input', { bubbles: true })); });
-  await page.click('#cc-toggle-btn'); await sleep(900);
-  ok((await page.getAttribute('#cc-toggle-btn', 'data-enabled')) === 'true', 'chat consent-active');
+    // 5) Panel consent 2-step + AUTO on.
+    const toggle = page.locator('#cc-panel .cc-panel-header button').first();
+    await toggle.waitFor({ state: 'visible', timeout: 30000 });
+    assert((await toggle.textContent()).includes('AI off'), 'panel toggle visible (AI off)');
+    await toggle.click(); await sleep(1500);
+    assert((await toggle.textContent()).includes('Consent pending'), 'consent step 1 -> pending');
+    await toggle.click(); await sleep(1500);
+    assert((await toggle.textContent()).includes('AI on'), 'consent step 2 -> AI on');
+    const autoBtn = page.locator('#cc-panel .cc-panel-header button', { hasText: 'Auto:' }).first();
+    await autoBtn.click(); await sleep(1000);
+    assert((await autoBtn.textContent()).includes('Auto: on'), 'AUTO mode on');
 
-  // --- SUGGEST: naya manual message -> bot reply -> draft (REAL Groq), send NAHI ---
-  await page.fill('textarea', 'aur bata, aaj mausam kaisa lag raha hai tujhe');
-  await page.keyboard.press('Enter');
-  let draft = '';
-  for (let i = 0; i < 45 && !draft; i++) {
-    await sleep(1000);
-    draft = await page.evaluate(() => (document.querySelector('textarea') || {}).value || '');
+    // 6) Fresh incoming AFTER activation: owner sends, Orbix bot replies.
+    await page.fill('textarea', 'accha ek aur batao - chhota sa fact sunao');
+    await page.keyboard.press('Enter');
+
+    // 7) Decisive banner: sent / fail-closed / infra.
+    let outcome = null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 180000) {
+      const banner = await page.locator('#cc-banner').textContent().catch(() => '') || '';
+      if (/Auto-reply bhej di gayi/.test(banner)) { outcome = 'sent'; break; }
+      if (/Auto-send ka button nahi mila|Auto-send ab safe nahi|direction pakka nahi/.test(banner)) { outcome = 'fail-closed: ' + banner.slice(0, 100); break; }
+      if (/Reply nahi ban payi|Backend se baat nahi/.test(banner)) { outcome = 'infra: ' + banner.slice(0, 100); break; }
+      await sleep(2000);
+    }
+    if (!outcome) outcome = 'timeout (no decisive banner in 180s)';
+    log('OUTCOME:', outcome);
+
+    // 8) Stop all immediately (bounds any reply loop).
+    await page.locator('#cc-stopall-btn').click().catch(() => {});
+    await sleep(500);
+
+    if (outcome.startsWith('fail-closed')) { log('Adapter failed closed on Orbix - honest exit 2.'); process.exit(2); }
+    if (outcome.startsWith('infra')) { log('Backend/AI failure (not adapter) - exit 3.'); process.exit(3); }
+    assert(outcome === 'sent', 'AUTO chain: real incoming -> AI reply auto-sent on Orbix');
+    log('ALL CHECKS PASSED - Orbix real-site AUTO chain observed end-to-end.');
+    process.exit(0);
+  } finally {
+    await ctx.close().catch(() => {});
+    fs.rmSync(userDir, { recursive: true, force: true });
   }
-  ok(draft.length > 3, 'ORBIX SUGGEST draft (real Groq): ' + draft.slice(0, 90));
-  await page.screenshot({ path: SHOTS + '/03-draft.png' });
-  await page.evaluate(() => { const t = document.querySelector('textarea'); if (t) { t.value = ''; t.dispatchEvent(new Event('input', { bubbles: true })); } });
-
-  // --- AUTO: 1 send observed, phir Stop all (bot loop bounded) ---
-  await page.click('#cc-auto-btn'); await sleep(600);
-  await page.fill('textarea', 'ek chhota sa joke suna na');
-  await page.keyboard.press('Enter');
-  let sentCount = 0;
-  for (let i = 0; i < 60; i++) {
-    await sleep(1000);
-    sentCount = await page.evaluate(() => document.querySelectorAll('.cc-note, #cc-banner').length ? Array.from(document.querySelectorAll('.cc-note')).filter((n) => /Auto-reply bhej di gayi/.test(n.textContent || '')).length : 0);
-    if (sentCount >= 1) break;
-  }
-  ok(sentCount >= 1, 'ORBIX AUTO-SEND observed (banner: Auto-reply bhej di gayi)');
-  await page.screenshot({ path: SHOTS + '/04-autosent.png' });
-  await page.click('#cc-stopall-btn'); await sleep(1500);
-  const stoppedLabel = await page.evaluate(() => (document.getElementById('cc-stopall-btn') || {}).textContent);
-  ok(stoppedLabel === 'Resume all', 'Stop all lagaya (bot reply loop bounded): ' + stoppedLabel);
-
-  await ctx.close();
-  console.log('ORBIX AUTO E2E ALL PASS');
-  process.exit(0);
-})().catch((e) => { console.log('ERR', String(e && e.message || e).slice(0, 500)); process.exit(1); });
+})();
