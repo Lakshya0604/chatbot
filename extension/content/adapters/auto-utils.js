@@ -202,6 +202,46 @@
     return null;
   }
 
+  // Row ke asli TEXT ka horizontal extent (Range rects): bubble measure fail ho to
+  // (row poori width ka box ho, header+answer mix) yahi asli alignment batata hai.
+  // Language-independent (Hindi/Latin same). Buttons/hidden skip. null = measure nahi hua.
+  function contentRect(row) {
+    try {
+      const doc = row.ownerDocument;
+      if (!doc || !doc.createRange || !doc.createTreeWalker) return null;
+      const w = doc.createTreeWalker(row, 4 /* SHOW_TEXT */);
+      let L = Infinity, R = -Infinity, n;
+      const rg = doc.createRange();
+      while ((n = w.nextNode())) {
+        if (!n.nodeValue || !n.nodeValue.trim()) continue;
+        const pe = n.parentElement;
+        if (pe && pe.closest && pe.closest('button,[role="button"],[aria-hidden="true"],script,style')) continue;
+        rg.selectNodeContents(n);
+        const rects = rg.getClientRects ? Array.from(rg.getClientRects()) : [];
+        for (const r of rects) { if (r.width > 0 && r.height > 0) { L = Math.min(L, r.left); R = Math.max(R, r.right); } }
+      }
+      return R > L ? { left: L, width: R - L, fromText: true } : null;
+    } catch (e) { return null; }
+  }
+  // Row ki geometry: narrower bubble mile to wahi, warna asli text extent, warna row.
+  function geomOf(row, measure) {
+    const b = bubbleOf(row, measure);
+    if (b !== row) return measure(b);
+    const tr = contentRect(row);
+    return tr || measure(row);
+  }
+  // 'right' | 'left' | 'ambig'. Left = bubble/text clearly left of centre YA text list ke left edge se
+  // chipka (full-width reply jo center par dikhe) - lekin sirf asli text extent se, kabhi row box se nahi.
+  function sideOf(row, lr, measure) {
+    const g = geomOf(row, measure);
+    if (!g || g.width <= 0) return 'ambig';
+    const off = (g.left + g.width / 2 - (lr.left + lr.width / 2)) / lr.width;
+    if (off > 0.08) return 'right';
+    if (off < -0.08) return 'left';
+    if (g.fromText && (g.left - lr.left) / lr.width < 0.08) return 'left';
+    return 'ambig';
+  }
+
   // Signal 2: alignment clustering (LTR chats mein apni messages RIGHT side).
   // rows ko LEFT/RIGHT/ambiguous mein baanto; dono sides mein kam se kam
   // minEach hon aur confusable rows zyada na hon.
@@ -214,13 +254,8 @@
     const center = lr.left + lr.width / 2;
     let right = 0, left = 0, ambi = 0;
     rows.forEach((row) => {
-      const b = bubbleOf(row, measure);
-      const rb = measure(b);
-      if (rb.width <= 0) { ambi++; return; }
-      const off = (rb.left + rb.width / 2 - center) / lr.width;
-      if (off > 0.08) right++;
-      else if (off < -0.08) left++;
-      else ambi++;
+      const sd = sideOf(row, lr, measure);
+      if (sd === 'right') right++; else if (sd === 'left') left++; else ambi++;
     });
     if (right >= minEach && left >= minEach && right + left >= (opts && opts.minTotal || 2)) {
       // Convention heuristic (WhatsApp/Telegram/iMessage/Messenger/ChatGPT sab
@@ -239,27 +274,15 @@
     measure = measure || defaultMeasure;
     const lr = measure(listContainer);
     if (lr.width <= 0) return false;
-    const b = bubbleOf(row, measure);
-    const rb = measure(b);
-    if (rb.width <= 0) return false;
-    const off = (rb.left + rb.width / 2 - (lr.left + lr.width / 2)) / lr.width;
-    if (outgoingSide === 'right') return off > 0.08;
-    return off < -0.08;
+    return sideOf(row, lr, measure) === (outgoingSide === 'right' ? 'right' : 'left');
   }
 
-
-  // Live runtime: alignment profile ke hisaab se ye row CLEARLY incoming hai?
-  // Measurement invalid/ambiguous -> FALSE (fail-closed: trigger kabhi guess par nahi).
+  // Live runtime: CLEARLY incoming? Ambiguous -> FALSE (fail-closed).
   function isIncomingByAlign(row, listContainer, outgoingSide, measure) {
     measure = measure || defaultMeasure;
     const lr = measure(listContainer);
     if (lr.width <= 0) return false;
-    const b = bubbleOf(row, measure);
-    const rb = measure(b);
-    if (rb.width <= 0) return false;
-    const off = (rb.left + rb.width / 2 - (lr.left + lr.width / 2)) / lr.width;
-    if (outgoingSide === 'right') return off < -0.08;
-    return off > 0.08;
+    return sideOf(row, lr, measure) === (outgoingSide === 'right' ? 'left' : 'right');
   }
 
   global.ChatAuto = {
@@ -267,6 +290,8 @@
     findMessageList,
     rowLikeChildren,
     bubbleOf,
+    contentRect,
+    sideOf,
     detectDirectionMarker,
     detectDirectionByAlignment,
     isOutgoingByAlign,

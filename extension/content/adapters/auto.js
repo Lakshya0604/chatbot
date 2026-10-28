@@ -118,7 +118,7 @@
     if (align) return { outgoingAlign: align.outgoing, fragile: true }; // alignment heuristic: fragile
     try { // diagnostics only (no chat text): why direction stayed pending
       const lr = container.getBoundingClientRect();
-      const offs = rows.map((r) => { const b = A.bubbleOf ? A.bubbleOf(r) : r; const rb = b.getBoundingClientRect(); return Math.round(((rb.left + rb.width / 2 - (lr.left + lr.width / 2)) / lr.width) * 100) / 100; });
+      const offs = rows.map((r) => { return A.sideOf ? A.sideOf(r, lr, A.defaultMeasure) : '?'; });
       console.log('CC_DIR pending rows=' + rows.length + ' centerOffsets=' + JSON.stringify(offs));
     } catch (e) {}
     return null;
