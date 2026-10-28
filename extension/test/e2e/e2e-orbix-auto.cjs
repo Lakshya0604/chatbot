@@ -18,7 +18,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function assert(cond, msg, extra) {
   if (cond) { log('PASS:', msg); return; }
-  console.error('FAIL:', msg, extra ?? ''); process.exit(1);
+  console.error('FAIL:', msg, extra ?? '');
+  throw new Error('ASSERT: ' + msg);
 }
 
 (async () => {
@@ -87,23 +88,26 @@ function assert(cond, msg, extra) {
       await page.fill('textarea', text);
       await page.keyboard.press('Enter');
     };
-    const waitBotReply = async (marker, timeoutS) => {
+    const assistantCount = () => page.evaluate(() => document.querySelectorAll('.msg.assistant').length);
+    const waitReplies = async (n, timeoutS) => {
       for (let i = 0; i < timeoutS / 2; i++) {
         await sleep(2000);
-        const got = await page.evaluate((m) => {
-          const bubbles = Array.from(document.querySelectorAll('.msg.assistant .answer, .answer, div, p'))
-            .filter(e => (e.textContent || '').trim().length > 20);
-          return bubbles.some(e => !(e.textContent || '').includes(m));
-        }, marker);
-        if (got) return true;
+        if ((await assistantCount()) >= n) return true;
       }
       return false;
     };
     await sendOwner('hi orbix, ek line mein bata tu kya kar sakta hai');
-    assert(await waitBotReply('hi orbix, ek line', 90), 'Orbix bot reply #1');
+    assert(await waitReplies(1, 90), 'Orbix bot reply #1');
     await sendOwner('accha ek chhota sa hindi joke sunao');
-    assert(await waitBotReply('accha ek chhota', 90), 'Orbix bot reply #2 (>=3 message rows present)');
-    await sleep(2000);
+    assert(await waitReplies(2, 90), 'Orbix bot reply #2 (>=3 message rows present)');
+    // streaming settle: 2s tak .msg.assistant count + text stable rahe
+    let lastTxt = '';
+    for (let i = 0; i < 15; i++) {
+      await sleep(2000);
+      const txt = await page.evaluate(() => (document.querySelector('.thread') || {}).textContent || '');
+      if (txt === lastTxt) break;
+      lastTxt = txt;
+    }
 
     // 4) Mirror toolbar click from the SW (same API calls background.js makes).
     await sw.evaluate(async () => {
@@ -118,7 +122,18 @@ function assert(cond, msg, extra) {
 
     // 5) Panel consent 2-step + AUTO on.
     const toggle = page.locator('#cc-panel .cc-panel-header button').first();
-    await toggle.waitFor({ state: 'visible', timeout: 30000 });
+    try {
+      await toggle.waitFor({ state: 'visible', timeout: 30000 });
+    } catch (e) {
+      const diag = await page.evaluate(() => {
+        const A = window.ChatAuto, C = window.ChatCustom;
+        if (!A || !C) return { err: 'utils not in main world (expected - content script world mein hain)' };
+        return {};
+      }).catch(() => ({}));
+      const prof = await sw.evaluate(async () => (await chrome.storage.local.get('siteProfiles')).siteProfiles);
+      log('DETECTION FAILED - siteProfiles:', JSON.stringify(prof).slice(0, 800), 'diag:', JSON.stringify(diag));
+      throw e;
+    }
     assert((await toggle.textContent()).includes('AI off'), 'panel toggle visible (AI off)');
     await toggle.click(); await sleep(1500);
     assert((await toggle.textContent()).includes('Consent pending'), 'consent step 1 -> pending');
@@ -158,14 +173,16 @@ function assert(cond, msg, extra) {
     await page.locator('#cc-stopall-btn').click().catch(() => {});
     await sleep(500);
 
-    if (outcome.startsWith('fail-closed')) { log('Adapter failed closed on Orbix - honest exit 2.'); process.exit(2); }
-    if (outcome.startsWith('infra')) { log('Backend/AI failure (not adapter) - exit 3.'); process.exit(3); }
-    assert(outcome === 'sent', 'AUTO chain: real incoming -> AI reply auto-sent on Orbix');
-    log('ALL CHECKS PASSED - Orbix real-site AUTO chain observed end-to-end.');
-    process.exit(0);
+    let code = 0;
+    if (outcome.startsWith('fail-closed')) { log('Adapter failed closed on Orbix - honest exit 2.'); code = 2; }
+    else if (outcome.startsWith('infra')) { log('Backend/AI failure (not adapter) - exit 3.'); code = 3; }
+    else assert(outcome === 'sent', 'AUTO chain: real incoming -> AI reply auto-sent on Orbix');
+    if (code === 0) log('ALL CHECKS PASSED - Orbix real-site AUTO chain observed end-to-end.');
+    globalThis.__exitCode = code;
   } finally {
-    await ctx.close().catch(() => {});
+    await ctx.close().catch(() => {}); // video finalize hone ke liye zaroori
     fs.rmSync(userDir, { recursive: true, force: true });
     fs.rmSync(BUILD, { recursive: true, force: true });
   }
-})();
+  process.exit(globalThis.__exitCode || 0);
+})().catch(e => { console.error('E2E-ERR', String(e).slice(0, 300)); process.exit(1); });

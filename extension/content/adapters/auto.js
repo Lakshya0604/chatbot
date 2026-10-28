@@ -131,7 +131,8 @@
     try { matched = Array.from(document.querySelectorAll(rowsSel)); } catch (e) { return { error: 'messages ka pattern invalid raha' }; }
     const inContainer = matched.filter((m) => m.parentElement === list.container);
     if (inContainer.length < Math.min(2, list.rows.length)) {
-      return { error: 'message pattern list ke bahar fail ho gaya (fail-closed)' };
+      const cname = (list.container.tagName || '') + '.' + String(list.container.className || '').trim().split(/\s+/).join('.');
+      return { error: 'message pattern list ke bahar fail ho gaya (fail-closed): sel=' + rowsSel + ' matched=' + matched.length + ' inContainer=' + inContainer.length + ' rows=' + list.rows.length + ' container=' + cname };
     }
     const compSel = U.deriveElementSelector(composer, document);
     if (!compSel) return { error: 'typing box ka reliable selector nahi ban paya' };

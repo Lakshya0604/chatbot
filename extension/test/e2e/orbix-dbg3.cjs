@@ -17,9 +17,11 @@ const log = (...a) => console.log('[dbg3]', ...a);
   await page.keyboard.press('Enter');
   await page.waitForSelector('textarea', { timeout: 120000 });
   await sleep(2000);
-  await page.fill('textarea', 'hi');
-  await page.keyboard.press('Enter');
-  await sleep(15000);
+  for (const msg of ['hi', 'ek joke sunao']) {
+    await page.fill('textarea', msg);
+    await page.keyboard.press('Enter');
+    await sleep(20000);
+  }
   await page.addScriptTag({ path: path.resolve(__dirname, '../../content/adapters/custom-utils.js') });
   await page.addScriptTag({ path: path.resolve(__dirname, '../../content/adapters/auto-utils.js') });
   const out = await page.evaluate(() => {
