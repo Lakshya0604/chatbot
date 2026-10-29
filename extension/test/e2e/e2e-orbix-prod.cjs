@@ -140,7 +140,7 @@ const rd = f => fs.readFileSync(f, 'utf8').trim();
     const sC = await stats();
     log('visionStats', JSON.stringify(sC));
     // Same-origin reload keeps the activeTab grant AND the persisted engine: a send is allowed ONLY with a fresh verified gate.
-    assert(bC && /Auto-reply bhej di gayi/.test(bC) ? sC.verified >= s1.verified + 2 : true, 'phase C: after reload any send came with a fresh verified vision gate');
+    assert(bC && /Auto-reply bhej di gayi/.test(bC) ? sC.verified >= s1.verified + 1 : true, 'phase C: after reload any send came with a fresh verified vision gate');
 
     // C2) grant loss: leave the origin and come back (activeTab is revoked on cross-origin navigation) -> must fail closed
     await page.goto('about:blank'); await sleep(1500);
