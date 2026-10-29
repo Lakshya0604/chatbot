@@ -4,6 +4,17 @@
 1. Chrome > chrome://extensions > turn on Developer mode > "Load unpacked" > pick this folder.
 2. Open the extension's Settings (Details > Extension options).
 
+## Two keys are needed (both are your own, both free-plan only)
+1. Reply AI = Groq key (card "1"). Groq is the provider that writes the replies; message text goes to Groq.
+2. Vision check = Cloudflare Account ID + Workers AI token (card "1v"). Screenshots go to Cloudflare. Without it, auto-send stays off.
+Create each key yourself in your own account and copy it once when it is shown; paste it only into the extension's masked field, never into chat.
+Groq: use a free account and do not upgrade; its current free-plan limits and terms should be read on console.groq.com/docs/rate-limits (not verified by this project for your account). Cloudflare: Workers Free plan, 10,000 neurons/day, no payment method.
+
+## Already have the extension installed?
+- Same folder: replace the files inside the SAME folder you loaded before, then press "Reload" on chrome://extensions. The extension keeps its ID and your saved settings (Chrome local storage).
+- Different folder or a fresh "Load unpacked": Chrome treats it as a new extension (new ID), so settings and keys must be entered again. Remove the old one only after the new one works.
+- After updating, open Settings and check the Vision card shows your saved state.
+
 ## Keys (you paste your own; fields are masked and stored only in this Chrome profile, never synced)
 - Reply AI: card "1" - your own free Groq API key (console.groq.com/keys), press "Key save karo + test".
 - Vision check: card "1v" - your Cloudflare Account ID (32 hex) and a Cloudflare Workers AI API token from YOUR free Cloudflare account
