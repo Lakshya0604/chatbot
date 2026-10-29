@@ -8,10 +8,11 @@
 1. Reply AI = Groq key (card "1"). Groq is the provider that writes the replies; message text goes to Groq.
 2. Vision check = Cloudflare Account ID + Workers AI token (card "1v"). Screenshots go to Cloudflare. Without it, auto-send stays off.
 Create each key yourself in your own account and copy it once when it is shown; paste it only into the extension's masked field, never into chat.
-Groq: use a free account and do not upgrade; its current free-plan limits and terms should be read on console.groq.com/docs/rate-limits (not verified by this project for your account). Cloudflare: Workers Free plan, 10,000 neurons/day, no payment method.
+Groq: checked on 29 Oct 2026 in the Groq console signed in through GitHub: the account was on the Free plan ($0, "Current Plan"), and the openai/gpt-oss-120b limits were 30 requests/min, 1,000 requests/day, 8K tokens/min, 200K tokens/day. Developer upgrades were shown as temporarily unavailable. This checks that account only; it does not prove that the key you paste belongs to it. Create your key in the account you checked, keep it on the Free plan, and do not upgrade. At the daily cap, requests fail and nothing is sent.
+Cloudflare: checked the same day: Workers Free plan, 10,000 neurons/day (resets 00:00 UTC), no payment method, no invoices. The extension calls the direct Workers AI route (api.cloudflare.com/client/v4/accounts/<id>/ai/), not AI Gateway. Past the free quota, calls fail and nothing is sent. Do not add a card, Workers Paid, or credits.
 
 ## Already have the extension installed?
-- Same folder: replace the files inside the SAME folder you loaded before, then press "Reload" on chrome://extensions. The extension keeps its ID and your saved settings (Chrome local storage).
+- Same folder: replace the files inside the SAME folder you loaded before, then reload the extension on chrome://extensions. In a test with dummy values, the same folder gave the same extension ID and kept saved settings after the update and a browser restart. The Reload button itself was not tested.
 - Different folder or a fresh "Load unpacked": Chrome treats it as a new extension (new ID), so settings and keys must be entered again. Remove the old one only after the new one works.
 - After updating, open Settings and check the Vision card shows your saved state.
 
