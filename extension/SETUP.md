@@ -13,7 +13,7 @@ Cloudflare: checked the same day: Workers Free plan, 10,000 neurons/day (resets 
 
 ## Already have the extension installed?
 - Same folder: replace the files inside the SAME folder you loaded before, then reload the extension on chrome://extensions. In a test with dummy values, the same folder gave the same extension ID and kept saved settings after the update and a browser restart. The Reload button itself was not tested.
-- Different folder or a fresh "Load unpacked": Chrome treats it as a new extension (new ID), so settings and keys must be entered again. Remove the old one only after the new one works.
+- Different folder or a fresh "Load unpacked": Chrome normally gives it a new extension ID (not tested here), so expect to enter settings and keys again. Remove the old one only after the new one works.
 - After updating, open Settings and check the Vision card shows your saved state.
 
 ## Keys (you paste your own; fields are masked and stored only in this Chrome profile, never synced)
