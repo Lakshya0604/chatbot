@@ -30,8 +30,8 @@ function runFill(listener) {
 }
 
 const PROFILE = {
-  name: 'Lakshya Yadav', email: 'lakshya@example.com', phone: '9258048164',
-  city: 'Noida', country: 'India', linkedin: 'linkedin.com/in/lakshya',
+  name: 'Test User', email: 'test@example.com', phone: '9000000000',
+  city: 'Noida', country: 'India', linkedin: 'linkedin.com/in/test-user',
 };
 
 test('known fields bharti hai, unknown chhod deti hai, banner aata hai', async (t) => {
@@ -45,9 +45,9 @@ test('known fields bharti hai, unknown chhod deti hai, banner aata hai', async (
     </form>`, PROFILE, t);
   const res = await runFill(listener);
   assert.equal(res.ok, true);
-  assert.equal(window.document.getElementById('nm').value, 'Lakshya Yadav');
-  assert.equal(window.document.getElementById('em').value, 'lakshya@example.com');
-  assert.equal(window.document.getElementById('ph').value, '9258048164');
+  assert.equal(window.document.getElementById('nm').value, 'Test User');
+  assert.equal(window.document.getElementById('em').value, 'test@example.com');
+  assert.equal(window.document.getElementById('ph').value, '9000000000');
   assert.equal(window.document.getElementById('xx').value, '', 'unknown field khaali');
   assert.ok(window.document.getElementById('cc-fill-banner'), 'review banner');
   assert.ok(/REVIEW/.test(window.document.getElementById('cc-fill-banner').textContent));
@@ -69,7 +69,7 @@ test('sensitive fields (password/OTP/card/PAN) SKIP hote hain', async (t) => {
   assert.equal(window.document.getElementById('otp').value, '');
   assert.equal(window.document.getElementById('card').value, '');
   assert.equal(window.document.getElementById('pan').value, '');
-  assert.equal(window.document.getElementById('em').value, 'lakshya@example.com');
+  assert.equal(window.document.getElementById('em').value, 'test@example.com');
 });
 
 test('select dropdown value/text se match hota hai', async (t) => {
