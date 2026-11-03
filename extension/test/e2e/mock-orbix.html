@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Orbix Mock (local e2e)</title></head>
+<body>
+  <aside class="sidebar"><div id="rows">
+    <div class="chat-row on"><button>local mock chat · Nov 2</button><button class="x">×</button></div>
+    <div class="chat-row"><button>doosri chat · Nov 1</button><button class="x">×</button></div>
+  </div></aside>
+  <main class="center">
+    <div class="thread">
+      <div class="msg user"><div class="bubble">pehla owner message</div></div>
+      <div class="msg assistant"><div class="steps">s</div><div class="answer">orbix ka pehla jawab</div><button class="chip">c</button></div>
+    </div>
+    <form class="composer"><textarea rows="1"></textarea><button class="btn primary" type="submit">Send</button></form>
+  </main>
+  <script>
+    // v18: real Orbix har chat open par GET /api/chats/<24hex> fetch karta hai (verified).
+    // Mock wahi emulate karta hai - adapter ki network identity isi se banti hai.
+    localStorage.setItem('orbix_token', 'mock-e2e-token'); // real site ka session token (adapter verification isi se API call karti hai)
+    const CHAT1 = '00000000000000000000aa01';
+    const CHAT2 = '00000000000000000000bb02';
+    const CHAT3 = '00000000000000000000cc03';
+    function mockFetchChat(id) { return fetch('https://orbix-3av3.onrender.com/api/chats/' + id).catch(() => {}); }
+    mockFetchChat(CHAT1); // initial open chat ka fetch
+    // Chat switch emulate: .on move + thread replace + naya fetch (opts.delayFetchMs = late completion)
+    window.__mockOpenChat = function (id, anchor, answer, opts) {
+      opts = opts || {};
+      const rows = document.querySelectorAll('.chat-row');
+      if (rows[0] && rows[1]) { rows[0].classList.remove('on'); rows[1].classList.add('on'); }
+      const t = document.querySelector('.thread');
+      t.innerHTML = '<div class="msg user"><div class="bubble"></div></div><div class="msg assistant"><div class="steps">s</div><div class="answer"></div></div>';
+      t.querySelector('.bubble').textContent = anchor;
+      t.querySelector('.answer').textContent = answer;
+      if (opts.delayFetchMs) setTimeout(() => mockFetchChat(id), opts.delayFetchMs);
+      else mockFetchChat(id);
+    };
+    window.__mockRefetch = function (id) { mockFetchChat(id); };
+
+    // Mock site behavior: submit par user row append (jaise real Orbix karta hai)
+    document.querySelector('form.composer').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const ta = e.target.querySelector('textarea');
+      const text = (ta.value || '').trim();
+      if (!text) return;
+      const row = document.createElement('div');
+      row.className = 'msg user';
+      row.innerHTML = '<div class="bubble"></div>';
+      row.querySelector('.bubble').textContent = text;
+      document.querySelector('.thread').appendChild(row);
+      ta.value = '';
+    });
+  </script>
+</body></html>

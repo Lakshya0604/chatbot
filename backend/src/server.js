@@ -8,8 +8,13 @@ import cors from 'cors';
 import { buildMessages } from './prompt.js';
 import { callChatCompletion, mockReply } from './provider.js';
 import { connectMongoMemory } from './memory.js';
+import { verifySigned, redeemPairCode } from './pairing.js';
+
+const SERVER_SECRET = process.env.SERVER_SECRET || '';
 
 const app = express();
+// Render/proxy ke peeche real client IP rate-limit ke liye (sirf 1 proxy hop par bharosa).
+if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 
 // Origin guard: kisi random website se aayi browser-request is local server ko
 // call na kar sake. Sirf extension (chrome-extension://) allowed hai.
@@ -32,7 +37,7 @@ app.use(express.json({ limit: '256kb' }));
 const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60 * 1000;
 const hits = new Map(); // ip -> [timestamps]
-app.use('/reply', (req, res, next) => {
+app.use(['/reply', '/pair/redeem'], (req, res, next) => {
   const now = Date.now();
   const list = (hits.get(req.ip) || []).filter((t) => now - t < RATE_WINDOW_MS);
   if (list.length >= RATE_LIMIT) {
@@ -61,7 +66,7 @@ const OWNER_TOKENS = (() => {
   try { return process.env.OWNER_TOKENS ? JSON.parse(process.env.OWNER_TOKENS) : null; }
   catch { console.warn('memory: OWNER_TOKENS JSON invalid, memory off'); return null; }
 })();
-if (process.env.MONGODB_URI && OWNER_TOKENS && Object.keys(OWNER_TOKENS).length > 0) {
+if (process.env.MONGODB_URI && ((OWNER_TOKENS && Object.keys(OWNER_TOKENS).length > 0) || SERVER_SECRET)) {
   try {
     const conn = await connectMongoMemory(process.env.MONGODB_URI);
     memory = conn.store;
@@ -76,13 +81,23 @@ if (process.env.MONGODB_URI && OWNER_TOKENS && Object.keys(OWNER_TOKENS).length 
 
 // Token se owner nikaalo. Match nahi mila to null (memory store nahi hogi).
 function ownerFromToken(req) {
+  const t = req.get('X-Chatbot-Token');
+  const dev = verifySigned(SERVER_SECRET, 'dev', t);
+  if (dev && dev.o) return dev.o;
   if (!OWNER_TOKENS) return null;
-  return OWNER_TOKENS[req.get('X-Chatbot-Token')] || null;
+  return OWNER_TOKENS[t] || null;
 }
 
 // Health check - extension/terminal se backend zinda hai ya nahi dekhne ke liye.
 app.get('/health', (req, res) => {
   res.json({ ok: true, mock: AI_MOCK });
+});
+
+// Pairing: code (30 min, ek baar) -> device token. Token response mein sirf ek baar jaata hai.
+app.post('/pair/redeem', (req, res) => {
+  const token = redeemPairCode(SERVER_SECRET, (req.body || {}).code);
+  if (!token) return res.status(401).json({ error: 'pairing code galat ya expire (naya maango)' });
+  return res.json({ token });
 });
 
 app.post('/reply', async (req, res) => {
@@ -91,7 +106,9 @@ app.post('/reply', async (req, res) => {
   // Shared-secret check: .env ka AUTH_TOKEN aur extension ka token match hona chahiye.
   // Isse koi aur app tumhare local backend (aur AI credit) use nahi kar sakti.
   // Mock mode mein bhi token chahiye - test setup aur real setup ka behavior same rahe.
-  if (AUTH_TOKEN && req.get('X-Chatbot-Token') !== AUTH_TOKEN) {
+  const presented = req.get('X-Chatbot-Token');
+  const authed = (AUTH_TOKEN && presented === AUTH_TOKEN) || !!verifySigned(SERVER_SECRET, 'dev', presented);
+  if ((AUTH_TOKEN || SERVER_SECRET) && !authed) {
     return res.status(401).json({ error: 'unauthorized: token mismatch' });
   }
 
@@ -150,10 +167,16 @@ app.post('/reply', async (req, res) => {
   }
 });
 
-// Sirf isi laptop par sunna hai - 127.0.0.1. 0.0.0.0 par bind karne se
-// same network (Wi-Fi) wale log bhi is server ko call kar sakte the.
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`backend chal raha hai: http://127.0.0.1:${PORT} (mock: ${AI_MOCK})`);
+// Default: sirf isi laptop par sunna hai - 127.0.0.1 (Wi-Fi wale log call na kar sakein).
+// Hosted (Render) par HOST=0.0.0.0 set hota hai - tab AUTH_TOKEN ZAROORI hai, warna
+// koi bhi internet par tumhara AI key/credit use kar leta (open proxy).
+const HOST = process.env.HOST || '127.0.0.1';
+if (HOST !== '127.0.0.1' && HOST !== 'localhost' && !AUTH_TOKEN && !SERVER_SECRET) {
+  console.error('FATAL: public HOST par AUTH_TOKEN ya SERVER_SECRET set kiye bina server start nahi hoga.');
+  process.exit(1);
+}
+app.listen(PORT, HOST, () => {
+  console.log(`backend chal raha hai: http://${HOST}:${PORT} (mock: ${AI_MOCK})`);
   if (!AI_MOCK && !AI_API_KEY) {
     console.warn('WARNING: AI_API_KEY set nahi hai. .env mein key dalo, ya test ke liye AI_MOCK=true rakho.');
   }

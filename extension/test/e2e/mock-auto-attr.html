@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<!-- mock-auto-attr.html - AUTO mode test: direction data-message-author-role inner
+     attribute se aani chahiye (ChatGPT-style marker). Sidebar decoy bhi hai. -->
+<html><head><meta charset="utf-8"><title>AttrChat (auto test)</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; }
+  #sidebar { width: 180px; background: #111b21; color: #fff; padding: 8px; }
+  .conv { padding: 10px; border-bottom: 1px solid #2a3942; }
+  #chat { flex: 1; display: flex; flex-direction: column; }
+  header { padding: 12px; background: #3b4a54; color: #fff; font-weight: bold; }
+  #list { flex: 1; padding: 16px; overflow-y: auto; background: #efeae2; }
+  .row { margin: 8px 0; }
+  .bubble { max-width: 55%; padding: 10px 14px; border-radius: 12px; background: #fff; display: inline-block; }
+  #composerbar { display: flex; gap: 8px; padding: 12px; background: #e9edef; }
+  #composer { flex: 1; background: #fff; border-radius: 8px; padding: 10px; min-height: 22px; }
+  #sendbtn { background: #00a884; color: #fff; border: 0; border-radius: 8px; padding: 10px 22px; cursor: pointer; }
+</style></head><body>
+  <div id="sidebar"><div class="conv">Asha: kal milte</div><div class="conv">Bhai: ok</div><div class="conv">Maa: khana?</div></div>
+  <div id="chat">
+    <header>Rohan (attr auto-test)</header>
+    <div id="list">
+      <div class="row"><div class="bubble"><div data-message-author-role="assistant">oye kya haal?</div></div></div>
+      <div class="row"><div class="bubble"><div data-message-author-role="user">badhiya, tu bata</div></div></div>
+      <div class="row"><div class="bubble"><div data-message-author-role="assistant">main bhi mast</div></div></div>
+    </div>
+    <div id="composerbar">
+      <div id="composer" contenteditable="true"></div>
+      <button id="sendbtn" type="button" aria-label="Send message">Send</button>
+    </div>
+  </div>
+<script>
+  const list = document.getElementById('list');
+  const composer = document.getElementById('composer');
+  function addRow(text, role) {
+    const row = document.createElement('div'); row.className = 'row';
+    const b = document.createElement('div'); b.className = 'bubble';
+    const inner = document.createElement('div');
+    inner.setAttribute('data-message-author-role', role);
+    inner.textContent = text;
+    b.appendChild(inner); row.appendChild(b); list.appendChild(row);
+    // re-render churn: extra mutations jo real sites karti hain
+    list.setAttribute('data-churn', String(Math.random()));
+    list.scrollTop = list.scrollHeight;
+  }
+  document.getElementById('sendbtn').addEventListener('click', () => {
+    const t = (composer.innerText || '').trim();
+    if (!t) return;
+    composer.innerText = '';
+    addRow(t, 'user');
+  });
+  window.__mock = {
+    receive: (text) => addRow(text, 'assistant'),
+    receiveStream: (parts, gapMs) => {
+      addRow(parts[0], 'assistant');
+      let i = 1;
+      const tick = () => {
+        if (i >= parts.length) return;
+        const inner = list.lastElementChild.querySelector('[data-message-author-role]');
+        inner.textContent += parts[i];
+        i++;
+        setTimeout(tick, gapMs || 300);
+      };
+      setTimeout(tick, gapMs || 300);
+    },
+  };
+</script></body></html>

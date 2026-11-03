@@ -41,6 +41,12 @@
     //   consentRequestText     -> saamne wale ko bhejne ka consent request draft (owner khud send karega)
     //   aiMarker               -> har AI suggestion ke end mein marker (default '')
     //   stopPattern            -> RegExp (default DEFAULT_STOP)
+    //   preSendCheck()         -> optional; AUTO send click se THEEK pehle sync call. false = send nahi.
+    //   autoEnabled            -> default true. false = AUTO is adapter par DISABLED:
+    //                             toggle button nahi banta, mode hamesha 'suggest'
+    //                             (human-reviewed drafts hi). Orbix v18: network identity
+    //                             overlapping switches mein unambiguous correlate nahi
+    //                             hoti (completion inversion) - isliye AUTO wahan off.
     //   sendSelector           -> AUTO mode ka send button (optional; na mile to
     //                             auto-reply draft ban jati hai, send nahi hoti)
     // }
@@ -101,6 +107,8 @@
     }
     let busy = false;
     let lastSeenIncoming = '';
+    let lastEngineText = ''; // engine ka aakhri insert/send - self-echo (ulta direction) pakadne ke liye
+    let pendingIncoming = null; // jis incoming content par batch arm hua (streaming re-arm ke liye)
     // epoch: har stop/off/state-change par badhta hai. In-flight AI request ka
     // late reply tab discard hota hai jab epoch badal chuka ho.
     let epoch = 0;
@@ -154,6 +162,7 @@
     // Per-chat reply mode: 'suggest' (default - draft, owner khud send kare) ya
     // 'auto' (consent-active chat mein AI reply apne aap send). Sirf device par.
     async function getChatMode(chatKey) {
+      if (config.autoEnabled === false) return 'suggest'; // adapter-level AUTO disable
       if (!chatKey) return 'suggest';
       const map = (await storageGet('local', MODE_KEY)) || {};
       return map[chatKey] === 'auto' ? 'auto' : 'suggest';
@@ -219,8 +228,10 @@
         stopAll.dataset.stopped = stopped ? 'true' : 'false';
       }
       // AUTO mode button: label sirf tab badlo jab sach mein badla (observer loop).
+      // Adapter ne AUTO disable kiya ho to button banao hi nahi (mode anyway suggest).
       let autoBtn = document.getElementById(AUTO_BTN_ID);
-      if (header && !autoBtn) {
+      if (config.autoEnabled === false && autoBtn) { autoBtn.remove(); autoBtn = null; }
+      if (config.autoEnabled !== false && header && !autoBtn) {
         autoBtn = document.createElement('button');
         autoBtn.id = AUTO_BTN_ID;
         autoBtn.type = 'button';
@@ -372,6 +383,7 @@
 
     // ---------- batching + trigger + STOP GATE ----------
     async function onPossibleNewMessage() {
+      if (disposed) return;
       if (await isGlobalStopped()) {
         // Stop ke DORAAN aaye messages "seen" mark karo - resume par unka purana
         // backlog reply na bane (sirf resume ke BAAD ke messages trigger honge).
@@ -418,6 +430,19 @@
       bootLastOutgoing = null; // ab aage ke outgoing "naye" hain
       lastArmedOutgoing = undefined; // naya episode: agla outgoing phir arm karega
       if (last.content === lastSeenIncoming) return;
+      // SELF-ECHO GUARD: jo text engine ne khud bheja/insert kiya wahi "naya
+      // incoming" dikh raha hai -> direction marker ULT chal raha hai. Ye loop
+      // ka seedha raasta hai - chat turant band (fail-closed), fresh consent se
+      // hi wapas. Normal chats mein ye kabhi match nahi karna chahiye.
+      if (lastEngineText && last.content === lastEngineText) {
+        epoch++;
+        if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+        clearFollowUp();
+        await setChatState(chatKey, 'stopped', 'self-echo: direction doubtful, fail-closed band');
+        showBanner('AI is chat par band kar diya: apni hi bheji hui reply incoming ki tarah dikh rahi hai (direction pakka nahi). Fresh consent ke bina wapas nahi chalega.', null);
+        refreshToggle();
+        return;
+      }
       lastSeenIncoming = last.content;
       void persistLastHandled(chatKey, last.content);
 
@@ -432,6 +457,7 @@
         return;
       }
 
+      pendingIncoming = last.content;
       if (batchTimer) clearTimeout(batchTimer);
       batchTimer = setTimeout(() => void generateSuggestion(), replyDelayMs());
     }
@@ -455,6 +481,26 @@
       attachObserver();
     });
 
+    // Adapter-initiated halt (additive): site-adapter runtime contract violation ya
+    // chat-switch par adapter engine ko rok sakta hai. Observers disconnect, timers
+    // clear, epoch++ se in-flight reply discard. Consent state/storage nahi chherta.
+    let disposed = false;
+    function disposeEngine() {
+      if (disposed) return;
+      disposed = true;
+      epoch++;
+      clearFollowUp();
+      if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+      observer.disconnect();
+      appObserver.disconnect();
+      // Apni UI hat do - naya instance (reboot) apni fresh UI banayega; do dead +
+      // ek live button reh jaayein to clicks stale instance par ja sakte hain.
+      for (const id of [TOGGLE_ID, AUTO_BTN_ID, BANNER_ID]) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+      }
+    }
+
     let booted = false;
     function boot() {
       const root = document.querySelector(config.rootSelector);
@@ -466,6 +512,25 @@
       refreshToggle();
       attachObserver();
       if (!booted) { booted = true; }
+    }
+
+    // ---------- vision invariant ----------
+    let visionToken = null;
+    const VISION_TOKEN_TTL_MS = 3 * 60 * 1000;
+    async function visionRequiredNow() {
+      try {
+        if (typeof config.visionRequired === 'function') return (await config.visionRequired()) !== false;
+        return typeof config.visionVerify === 'function';
+      } catch (e) { return true; } // unreadable config = fail closed (required)
+    }
+    // Auto-send se pehle: required ho to token isi chat + isi last incoming text + taza + single-use.
+    async function visionAllowsSend(chatKey) {
+      if (!(await visionRequiredNow())) return true;
+      const t = visionToken;
+      if (!t || t.chatKey !== chatKey || Date.now() - t.ts > VISION_TOKEN_TTL_MS) return false;
+      const msgs = readMessages();
+      const last = msgs[msgs.length - 1];
+      return !!last && last.role === 'user' && last.content === t.text;
     }
 
     // ---------- reply generation ----------
@@ -489,6 +554,49 @@
       if (lastMsg.role === 'user' && stopPattern.test(lastMsg.content)) {
         await setChatState(chatKey, 'stopped', 'recipient ne stop kaha');
         refreshToggle();
+        return;
+      }
+
+      // STREAMING RE-ARM: real sites message text ko chunks mein badhati hain.
+      // Timer arm hone ke BAAD text aur aaya ho to partial par reply na bane -
+      // naye content par timer dobara arm karo aur abhi generate mat karo.
+      if (!(opts && opts.followUp) && lastMsg.role === 'user' && pendingIncoming && lastMsg.content !== pendingIncoming) {
+        pendingIncoming = lastMsg.content;
+        lastSeenIncoming = lastMsg.content;
+        void persistLastHandled(chatKey, lastMsg.content);
+        if (batchTimer) clearTimeout(batchTimer);
+        batchTimer = setTimeout(() => void generateSuggestion(), replyDelayMs());
+        return;
+      }
+
+      // VISION GATE (optional, config.visionVerify): jab vision provider set ho to
+      // reply se pehle screenshot-transcript se confirm hota hai ki DOM ka padha
+      // hua last incoming sach mein screen par aakhri message hai. FAIL-CLOSED:
+      // vision fail/mismatch = reply nahi (kuch generate/send nahi hota).
+      // INVARIANT: vision route chosen (visionRequired) => GATE MANDATORY, har send par,
+      // live storage se padha (init-time config par nahi). Token single-use + per-message.
+      const needVision = await visionRequiredNow();
+      visionToken = null;
+      if (needVision && !(opts && opts.followUp) && lastMsg.role === 'user') {
+        if (typeof config.visionVerify !== 'function') {
+          if (getChatKey() === chatKey) showBanner('Vision check fail (fail-closed, reply nahi bheji): gate available nahi', null);
+          return;
+        }
+        busy = true; // vision wait ke dauraan dusra generate overlap na kare
+        showBanner('Vision check chal raha hai...', null);
+        let vres;
+        try { vres = await config.visionVerify(lastMsg.content); } catch (e) { vres = { ok: false, reason: String(e && e.message || e) }; }
+        busy = false;
+        if (epoch !== myEpoch || (await isGlobalStopped())) return;
+        const st2 = await getChatState(chatKey);
+        if (!st2 || st2.state !== 'active') return;
+        if (!vres || vres.ok !== true || vres.skipped) {
+          if (getChatKey() === chatKey) showBanner('Vision check fail (fail-closed, reply nahi bheji): ' + ((vres && vres.reason) || 'unknown'), null);
+          return;
+        }
+        visionToken = { chatKey, text: lastMsg.content, ts: Date.now() };
+      } else if (needVision) {
+        // follow-up (koi naya incoming nahi, gate nahi chala) -> vision mode mein generate nahi
         return;
       }
 
@@ -559,6 +667,10 @@
       if (await isGlobalStopped()) return; // beech mein Stop all -> send nahi
       const st = await getChatState(chatKey);
       if (!st || st.state !== 'active') return; // consent wapas/off -> send nahi
+      if (!(await visionAllowsSend(chatKey))) {
+        showBanner('Vision-verified nahi (ya purana) - auto-send nahi. Draft yahan hai, khud bhejo:', text);
+        return;
+      }
       const composer = getComposer();
       if (!composer || composerHasText(composer)) {
         await insertSuggestion(text, chatKey); // user type kar raha hai - draft only
@@ -571,19 +683,23 @@
       }
       composer.focus();
       engineInserting = true;
-      try { document.execCommand('insertText', false, text); } finally { setTimeout(() => { engineInserting = false; }, 0); }
+      try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); } finally { setTimeout(() => { engineInserting = false; }, 0); }
       // Controlled frameworks (React) apna state async update karte hain, isliye
       // send button insert ke turant baad disabled reh sakta hai. Thoda ruk kar
       // button dobara dhoondo; enabled na mile to draft composer mein hi chhodo.
       await new Promise((r) => setTimeout(r, 150));
       // CLICK SE PEHLE full re-check: is chhoti window mein Stop all / consent off /
       // chat switch / owner typing ho sakta hai - kuch bhi badla to send NAHI.
-      const stillOk = !(await isGlobalStopped())
+      const stillOk = !disposed // adapter ne halt/switch invalidate kiya (synchronous) -> kabhi send nahi
+        && (typeof config.preSendCheck !== 'function' || config.preSendCheck()) // adapter ka live contract re-check
+        && !(await isGlobalStopped())
         && getChatKey() === chatKey
         && (await getChatState(chatKey))?.state === 'active'
+        && (await visionAllowsSend(chatKey))
         && composerText(composer) === text.trim(); // composer mein SIRF wahi AI text ho (owner ne beech mein type nahi kiya)
       const btn = stillOk ? findSendButton(composer) : null;
       if (btn && !btn.disabled) {
+        visionToken = null; // single-use: agla message naya check maangega
         btn.click();
         showBanner('Auto-reply bhej di gayi (consent-active chat). Rokna ho to AI off ya Stop all.', null);
       } else {
@@ -626,7 +742,8 @@
       const composer = getComposer();
       if (composer && !composerHasText(composer)) {
         composer.focus();
-        document.execCommand('insertText', false, text);
+        engineInserting = true;
+        try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); } finally { setTimeout(() => { engineInserting = false; }, 0); }
         showBanner('Draft ready. Padho, edit karo, phir KHUD send dabao.', text);
       } else {
         showBanner('Draft ready. Box mein tumhara text hai, isliye yahan rakha:', text);
@@ -668,7 +785,7 @@
     }
 
     boot();
-    return { refreshToggle };
+    return { refreshToggle, stop: disposeEngine };
   }
 
   global.ChatEngine = { createChatAssistant };

@@ -46,7 +46,7 @@ function chatHtml(chatId, messages) {
     </div></div>`;
 }
 
-function makeWorld({ sendMessage, initialHtml, seedLocal, testConfig }, t) {
+function makeWorld({ sendMessage, initialHtml, seedLocal, testConfig, configOverride }, t) {
   const dom = new JSDOM(`<!DOCTYPE html><html><body>${initialHtml}</body></html>`, {
     url: 'https://chat.example/', runScripts: 'dangerously',
   });
@@ -75,7 +75,7 @@ function makeWorld({ sendMessage, initialHtml, seedLocal, testConfig }, t) {
 
   window.__CC_TEST__ = Object.assign({ BATCH_DELAY_MS: BATCH }, testConfig || {});
   window.eval(SCRIPT);
-  window.ChatEngine.createChatAssistant(CONFIG);
+  window.ChatEngine.createChatAssistant(Object.assign({}, CONFIG, configOverride || {}));
   return { window, calls, store };
 }
 
@@ -567,4 +567,47 @@ test('FOLLOW-UP CANCEL: owner typing ya Stop-all pending follow-up rok deta hai'
   w2.window.document.getElementById('cc-stopall-btn').click(); // STOP ALL
   await sleep(700);
   assert.equal(w2.calls.length, 0, 'Stop-all ne pending follow-up cancel kiya');
+});
+
+// ---------- AUTO-SEND commit window (adapter preSendCheck + disposed invalidation) ----------
+function seedAutoLocal() {
+  return {
+    chatConsent: { 'id:aaa': { state: 'active', ts: new Date().toISOString(), note: 'seeded' } },
+    chatMode: { 'id:aaa': 'auto' },
+  };
+}
+
+test('AUTO SEND: generation ke beech preSendCheck false ho jaye to send COMMIT NAHI hota', async (t) => {
+  const gate = { ok: true };
+  let clicks = 0;
+  const { window } = makeWorld({
+    sendMessage: async () => { await sleep(300); return { ok: true, data: { reply: 'AUTO REPLY' } }; },
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla jawab' }]),
+    seedLocal: seedAutoLocal(),
+    configOverride: { preSendCheck: () => gate.ok },
+  }, t);
+  window.document.querySelector('.composer .send').addEventListener('click', () => clicks++);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'auto reply chahiye');
+  await sleep(150); // generation in-flight (300ms backend)
+  gate.ok = false;  // adapter ne contract violation/switch detect kiya - is window mein
+  await sleep(600);
+  assert.equal(clicks, 0, 'preSendCheck false -> send click kabhi nahi');
+  assert.ok(bannerText(window).includes('Auto-send ab safe nahi'), bannerText(window));
+});
+
+test('AUTO SEND: contract stable rahe to consent-active auto chat mein send hota hai (control)', async (t) => {
+  const gate = { ok: true };
+  let clicks = 0;
+  const { window } = makeWorld({
+    sendMessage: async () => { await sleep(200); return { ok: true, data: { reply: 'AUTO REPLY' } }; },
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla jawab' }]),
+    seedLocal: seedAutoLocal(),
+    configOverride: { preSendCheck: () => gate.ok },
+  }, t);
+  window.document.querySelector('.composer .send').addEventListener('click', () => clicks++);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'auto reply chahiye');
+  await sleep(700);
+  assert.equal(clicks, 1, 'stable contract par auto-send commit hota hai');
 });

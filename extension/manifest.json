@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Character Chatbot - local AI reply assistant",
-  "version": "0.5.0",
-  "description": "Local character-based AI reply engine: consent-gated suggestions aur auto-replies, user-selected CUSTOM chat mode (kisi bhi allowed site par user khud chat elements select karta hai) aur form auto-fill (review-first, submit kabhi nahi). Telegram aur WhatsApp adapters EXPERIMENTAL (dummy mock tested, live unverified). Sirf 127.0.0.1 backend se baat karta hai.",
+  "version": "0.8.1",
+  "description": "AI character reply assistant: consent-gated suggestions aur per-chat auto-replies. Apni Groq (ya OpenAI-compatible) API key se, ya hosted backend se. Kisi bhi site par AUTO setup (koi manual selection nahi, fail-closed). Telegram/WhatsApp adapters experimental.",
   "permissions": [
     "storage",
     "scripting",
@@ -11,7 +11,10 @@
   ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
-    "http://localhost:8787/*"
+    "http://localhost:8787/*",
+    "https://*.onrender.com/*",
+    "https://api.groq.com/*",
+    "https://api.cloudflare.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -37,9 +40,34 @@
         "content/adapters/whatsapp.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://orbix-video-ly.web.app/*"
+      ],
+      "js": [
+        "content/engine.js",
+        "content/adapters/orbix.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://orbix-video-ly.web.app/*"
+      ],
+      "js": [
+        "content/orbix-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {
-    "default_title": "Character Chatbot: is site par apni chat select karo"
-  }
+    "default_title": "Character Chatbot: is site ka chat auto-detect karo"
+  },
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ]
 }

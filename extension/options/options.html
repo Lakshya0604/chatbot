@@ -7,9 +7,67 @@
 </head>
 <body>
   <main>
-    <h1>Character settings</h1>
-    <p class="hint">Ye settings har AI reply ko guide karti hain. Save karke settings backend ko use hongi. Platform adapter abhi available nahi hai (README ka Status section dekho).</p>
+    <header class="hero">
+      <div class="logo">CC</div>
+      <div>
+        <h1>Character Chatbot</h1>
+        <p>Apna character set karo, backend connect karo, aur chats mein AI se reply banwao. Auto-send tabhi hota hai jab tum us chat mein khud ON karo.</p>
+      </div>
+    </header>
 
+    <section class="card connect" id="ownKeyCard">
+      <h2><span class="step">1</span> Apni AI key se connect karo (code ki zaroorat nahi)</h2>
+      <p class="hint">Apni free <b>Groq</b> API key daalo (Groq = inference company, console.groq.com/keys; <b>xAI ka Grok nahi</b>). Key sirf is computer ke Chrome mein save hoti hai (sync nahi hoti) aur AI requests seedha provider ko jaati hain - koi server beech mein nahi. Key kisi chat ya dusre ko mat bhejo.</p>
+      <label>Provider
+        <select id="aiProvider">
+          <option value="groq">Groq (recommended, free key)</option>
+          <option value="custom">Custom OpenAI-compatible (advanced, base URL + model do)</option>
+        </select>
+      </label>
+      <label>API key
+        <input id="aiKey" type="password" placeholder="gsk_..." autocomplete="off" spellcheck="false" />
+      </label>
+      <label id="aiModelRow">Model (khaali = default)
+        <input id="aiModel" type="text" placeholder="openai/gpt-oss-120b" autocomplete="off" />
+      </label>
+      <label id="aiBaseRow" style="display:none">Base URL (custom ke liye, https://...)
+        <input id="aiBaseUrl" type="text" placeholder="https://api.example.com/v1" autocomplete="off" />
+      </label>
+      <button id="aiSaveBtn" type="button">Key save karo + test</button>
+      <button id="aiClearBtn" type="button" data-variant="secondary">Key hatao</button>
+      <p class="hint" id="aiStatus"></p>
+      <p class="hint">Test mein ek chhota sa asli AI call hota hai (tumhari apni key ka thoda usage).</p>
+    </section>
+
+    <section class="card connect" id="visionCard">
+      <h2><span class="step">1v</span> Vision check (free Cloudflare Workers AI) - auto-send se pehle screenshot verify</h2>
+      <p class="hint">Jab ye ON hota hai to auto-send SIRF tab hota hai jab screenshot se confirm ho ki jo last message DOM se padha wahi screen par aakhri hai. Check fail / key galat / screenshot na bane = <b>auto-send nahi</b> (draft hi milta hai). Vision se message ki <b>direction</b> (kaun si tumhari/unki) decide nahi hoti. Screenshot sirf chat-list area ka crop hota hai aur seedha Cloudflare ko jaata hai. Cloudflare free plan ke limits lagte hain (koi card nahi). Token sirf is computer ke Chrome mein save hota hai (sync nahi), kabhi ZIP/chat mein mat bhejo. Screenshot ke liye us site par toolbar icon click karna padta hai (activeTab).</p>
+      <label>Cloudflare Account ID (32 hex)
+        <input id="visionAccountId" type="text" placeholder="0123456789abcdef0123456789abcdef" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>Cloudflare Workers AI API token
+        <input id="visionKey" type="password" placeholder="Workers AI token" autocomplete="off" spellcheck="false" />
+      </label>
+      <label><input id="visionEnabled" type="checkbox" checked /> Vision check ON (recommended). OFF karne par bina vision ke purani auto-send safety chalti hai.</label>
+      <button id="visionSaveBtn" type="button">Vision save karo + test</button>
+      <button id="visionClearBtn" type="button" data-variant="secondary">Vision hatao</button>
+      <p class="hint" id="visionStatus" role="status"></p>
+      <p class="hint">Test mein 1 chhota asli vision call hota hai (free plan ke ~11 neurons).</p>
+    </section>
+
+    <section class="card connect">
+      <h2><span class="step">1b</span> Ya hosted backend se connect karo (pairing code)</h2>
+      <p class="hint">Pairing code ek hi baar paste karna hai (30 minute mein expire hota hai). Hosted server so raha ho to pehli baar 1 minute tak lag sakta hai.</p>
+    <label>Pairing code (hosted backend ke liye - sirf ek baar paste karo, phir "Connect" dabao)
+      <input id="pairCode" type="text" placeholder="cc1p...." autocomplete="off" />
+    </label>
+    <button id="pairBtn" type="button">Connect</button>
+    <p class="hint" id="pairStatus"></p>
+
+    </section>
+
+    <section class="card">
+      <h2><span class="step">2</span> Character</h2>
     <label>Character ka naam
       <input id="name" type="text" placeholder="e.g. Meera" />
     </label>
@@ -80,14 +138,19 @@
       Halki flirting allowed (boundaries ke andar)
     </label>
 
+    </section>
+
+    <section class="card">
+      <h2><span class="step">3</span> Advanced: backend URL / token</h2>
     <label>Backend URL
       <input id="backendUrl" type="text" placeholder="http://127.0.0.1:8787" />
     </label>
 
-    <label>Auth token (.env ke AUTH_TOKEN se same rakhna)
-      <input id="authToken" type="text" placeholder="koi bhi lamba random string" />
+    <label>Auth token (secret - pairing ke baad apne aap bharta hai)
+      <input id="authToken" type="password" placeholder="pairing se apne aap bharta hai" autocomplete="off" />
     </label>
 
+    </section>
     <p class="hint">Privacy: character settings Chrome sync mein tumhare apne Google account ke through sync hoti hain. Auth token secret hai - wo kabhi sync nahi hota, sirf isi device par rehta hai. Chat messages sirf tab backend/AI ko jaate hain jab tum us chat mein AI on karte ho.</p>
 
 
@@ -141,6 +204,8 @@
     <button id="save" type="button">Save</button>
     <span id="status"></span>
   </main>
+  <script src="../lib/ai.js"></script>
+  <script src="../lib/vision.js"></script>
   <script src="options.js"></script>
 </body>
 </html>
