@@ -9,14 +9,38 @@
 // Content script (engine) ka code ise kabhi nahi padhta, aur website ke apne
 // scripts extension storage tak pahunch hi nahi sakte.
 
+importScripts('lib/ai.js');
+importScripts('lib/match-pattern.js');
+importScripts('lib/vision.js');
+// MV3 SW mein importScripts sirf startup evaluation mein reliably chalta hai
+// (runtime importScripts fresh files ke liye fail hota hai - tested), isliye
+// LangChain bundle yahan statically load hota hai.
+importScripts('lib/vendor/langchain-vision.bundle.js');
+
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8787';
-const REQUEST_TIMEOUT_MS = 45000; // AI reply der se aaye to hamesha ke liye hang na ho
+const REQUEST_TIMEOUT_MS = 120000; // hosted free server so ke jaagne mein der laga sakta hai // AI reply der se aaye to hamesha ke liye hang na ho
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!request || request.type !== 'GENERATE_REPLY') return false;
 
   const payload = request.payload || {};
   const backendUrl = payload.backendUrl || DEFAULT_BACKEND_URL;
+
+  // OWN-KEY mode: user ne apni API key set ki hai -> provider ko seedha call
+  // (koi server beech mein nahi, key sirf is device ke storage.local mein).
+  chrome.storage.local.get('aiConfig', (cfgRes) => {
+    const cfg = cfgRes && cfgRes.aiConfig;
+    if (cfg && cfg.apiKey) {
+      self.CCAI.generateReply(cfg, { character: payload.character, messages: payload.messages, followUp: payload.followUp === true })
+        .then((reply) => sendResponse({ ok: true, status: 200, data: { reply } }))
+        .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err).split(cfg.apiKey).join('[key]') }));
+      return;
+    }
+    relayViaBackend();
+  });
+  return true;
+
+  function relayViaBackend() {
 
   // Token khud storage se padho - content script se aaye payload par bharosa nahi.
   // authToken secret hai: storage.local (isi device). Purane versions sync mein
@@ -59,8 +83,63 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     });
   });
+  }
+});
 
-  return true; // sendResponse async chalega
+
+// ---------- VISION: chat screenshot -> structured messages (consent-gated callers only) ----------
+// visionConfig storage.local mein: { provider: 'cloudflare'|'custom'|'mock', apiKey, accountId, baseUrl, model }
+// Key sirf is device par; error messages se key scrub hoti hai. Image crop +
+// bhejne ka decision caller ka hai (consent-active chat only).
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (!request || request.type !== 'INTERPRET_CHAT_IMAGE') return false;
+  const imageBase64 = String((request.payload && request.payload.imageBase64) || '');
+  const mimeType = String((request.payload && request.payload.mimeType) || 'image/jpeg');
+  if (!imageBase64 || imageBase64.length > 14 * 1024 * 1024) {
+    sendResponse({ ok: false, error: 'image missing ya bahut badi (max ~10MB)' });
+    return false;
+  }
+  chrome.storage.local.get('visionConfig', async (res) => {
+    const cfg = res && res.visionConfig;
+    let key = '';
+    try {
+      if (!cfg) throw new Error('vision provider set nahi hai (visionConfig khaali)');
+      const r = self.CCVision.resolveVisionProvider(cfg);
+      key = r.apiKey || '';
+      const transcript = request.payload && request.payload.mode === 'transcript';
+      let raw;
+      if (r.provider === 'mock') {
+        raw = r.mockReply;
+      } else {
+        raw = await self.CCLangChainVision.interpretChatImage({
+          baseUrl: r.baseUrl, apiKey: r.apiKey, model: r.model, provider: r.provider,
+          messages: transcript
+            ? self.CCVision.buildTranscribeMessages(imageBase64, mimeType)
+            : self.CCVision.buildVisionMessages(imageBase64, mimeType),
+        });
+      }
+      if (transcript) {
+        const texts = self.CCVision.parseTranscriptResponse(raw);
+        const verifyRes = self.CCVision.verifyLastMessage(texts, String((request.payload && request.payload.domLastText) || ''));
+        // sirf counters (content nahi) - debugging/proof ke liye, device par
+        chrome.storage.local.get('visionStats', (st) => {
+          const v = (st && st.visionStats) || { calls: 0, verified: 0, rejected: 0 };
+          v.calls++; if (verifyRes.ok) v.verified++; else v.rejected++;
+          v.lastTranscriptLen = texts.length; v.lastAt = new Date().toISOString();
+          chrome.storage.local.set({ visionStats: v });
+        });
+        sendResponse({ ok: true, data: { transcript: texts, verify: verifyRes } });
+        return;
+      }
+      const messages = self.CCVision.parseVisionResponse(raw);
+      if (messages.length === 0) throw new Error('vision: screenshot mein koi chat message clear nahi dikha');
+      sendResponse({ ok: true, data: { messages, chat: self.CCVision.toChatMessages(messages) } });
+    } catch (err) {
+      const msg = String((err && err.message) || err).split(key || '\u0000').join('[key]').slice(0, 300);
+      sendResponse({ ok: false, error: msg });
+    }
+  });
+  return true;
 });
 
 // ---------- CUSTOM mode + form-fill entry points (user-controlled, per-site) ----------
@@ -70,14 +149,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id || !/^https?:/.test(tab.url || '')) return;
+  // Static-adapter site (manifest content_scripts, jaise Orbix/Telegram/WhatsApp) par
+  // generic auto-detection PARALLEL mein NAHI chalega - adapter ka fail-closed contract
+  // hi wahan ka ekmatra path hai. (activeTab click = user gesture, par double engine
+  // + generic inference us site ke grounded contract ko bypass kar deta.)
+  if (CCMatchPattern.hasStaticAdapter(chrome.runtime.getManifest(), tab.url)) {
+    console.info('CC: static adapter site - generic auto inject skip:', tab.url);
+    return;
+  }
   try {
-    // Picker ke liye engine+utils+custom inject karo (engine inert hai jab tak
-    // koi adapter createChatAssistant na bulaye; custom.js picker chalayega).
+    // AUTO setup ke liye engine+utils+auto inject karo (engine inert hai jab
+    // tak koi adapter createChatAssistant na bulaye; auto.js khud layout detect
+    // karta hai - koi manual picker nahi).
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/custom.js'],
+      files: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/auto-utils.js', 'content/adapters/auto.js'],
     });
-    chrome.tabs.sendMessage(tab.id, { type: 'CC_START_PICKER' }, () => void chrome.runtime.lastError);
+    chrome.tabs.sendMessage(tab.id, { type: 'CC_AUTO_START' }, () => void chrome.runtime.lastError);
   } catch (e) {
     // chrome:// , Web Store, restricted pages par injection fail hoti hai - normal.
   }
@@ -87,11 +175,15 @@ chrome.action.onClicked.addListener(async (tab) => {
 // taaki agle visit par selected-chat engine apne aap chale.
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!request || request.type !== 'CC_REGISTER_SITE' || !request.origin) return false;
+  if (CCMatchPattern.hasStaticAdapter(chrome.runtime.getManifest(), request.origin + '/')) {
+    sendResponse({ ok: false, error: 'static adapter site - generic registration nahi' });
+    return false;
+  }
   const id = 'cc-custom-' + request.origin.replace(/[^a-z0-9]/gi, '_');
   chrome.scripting.registerContentScripts([{
     id,
     matches: [request.origin + '/*'],
-    js: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/custom.js'],
+    js: ['content/engine.js', 'content/adapters/custom-utils.js', 'content/adapters/auto-utils.js', 'content/adapters/auto.js'],
     runAt: 'document_idle',
     persistAcrossSessions: true,
   }])
@@ -114,4 +206,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content/formfill.js'] });
     chrome.tabs.sendMessage(tab.id, { type: 'CC_FILL_FORM' }, () => void chrome.runtime.lastError);
   } catch (e) { /* restricted page */ }
+});
+
+
+
+// ---------- VISION: visible tab capture (sirf wahi tab jahan user ne toolbar click kiya / activeTab) ----------
+// Image sirf content script ke crop ke baad (chat list area) provider ko jaati hai.
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (!request || request.type !== 'CC_CAPTURE_TAB') return false;
+  const tab = sender && sender.tab;
+  if (!tab || typeof tab.windowId !== 'number') { sendResponse({ ok: false, error: 'tab nahi mila' }); return false; }
+  try {
+    chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 }, (dataUrl) => {
+      const err = chrome.runtime.lastError;
+      if (err || !dataUrl) sendResponse({ ok: false, error: String((err && err.message) || 'capture fail') + ' (toolbar icon dobara click karo - screenshot ke liye activeTab chahiye)' });
+      else sendResponse({ ok: true, data: { dataUrl } });
+    });
+  } catch (e) {
+    sendResponse({ ok: false, error: String(e) });
+  }
+  return true;
 });
