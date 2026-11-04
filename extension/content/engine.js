@@ -506,6 +506,16 @@
       if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
       observer.disconnect();
       appObserver.disconnect();
+      // DRAFT LIFECYCLE (dispose/reboot): SPA composer chats ke beech shared hota
+      // hai aur adapter chat-switch par naya instance boot karta hai - is instance
+      // ka UNTOUCHED draft agli chat mein leak NAHI hona chahiye. Owner ne ek bhi
+      // edit ki ho to text chhoo NAHI, sirf apni bookkeeping reset karo.
+      if (engineDraftChatKey) {
+        const dc = getComposer();
+        if (dc && composerText(dc) === lastEngineText) clearComposer(dc);
+        lastEngineText = '';
+        engineDraftChatKey = null;
+      }
       // Apni UI hat do - naya instance (reboot) apni fresh UI banayega; do dead +
       // ek live button reh jaayein to clicks stale instance par ja sakte hain.
       for (const id of [TOGGLE_ID, AUTO_BTN_ID, BANNER_ID]) {

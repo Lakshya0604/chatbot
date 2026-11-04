@@ -77,8 +77,8 @@ function makeWorld({ sendMessage, initialHtml, seedLocal, testConfig, configOver
 
   window.__CC_TEST__ = Object.assign({ BATCH_DELAY_MS: BATCH }, testConfig || {});
   window.eval(SCRIPT);
-  window.ChatEngine.createChatAssistant(Object.assign({}, CONFIG, configOverride || {}));
-  return { window, calls, store };
+  const engine = window.ChatEngine.createChatAssistant(Object.assign({}, CONFIG, configOverride || {}));
+  return { window, calls, store, engine };
 }
 
 const composerOf = (w) => w.document.querySelector('.composer .box');
@@ -703,4 +703,40 @@ test('DRAFT LIFECYCLE: stale async completion + switchback par draft sahi chat m
   await sleep(150);
   const got = composerOf(window).textContent || bannerText(window);
   assert.ok(got.includes('LATE REPLY FOR A'), 'switchback par A mein deliver');
+});
+
+test('DRAFT LIFECYCLE: adapter reboot (engine stop) par untouched draft shared composer se clear', async (t) => {
+  const reply = 'REBOOT CLEAR DRAFT';
+  const { window, engine } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla' }]),
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'naya sawal');
+  await sleep(250);
+  assert.equal(composerOf(window).textContent, reply + ' (AI)', 'draft A ke composer mein');
+
+  engine.stop(); // Orbix adapter ka chat-switch reboot path: purana instance dispose
+  await sleep(60);
+  assert.equal(composerOf(window).textContent, '', 'dispose par untouched draft clear (cross-chat leak nahi)');
+  assert.equal(window.document.getElementById('cc-toggle-btn'), null, 'purani UI bhi hat gayi');
+});
+
+test('DRAFT LIFECYCLE: engine stop par owner-edited draft preserve rehta hai', async (t) => {
+  const reply = 'STOP EDIT DRAFT';
+  const { window, engine } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla' }]),
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'sawal');
+  await sleep(250);
+  const edited = reply + ' (AI)' + ' + mera edit';
+  composerOf(window).textContent = edited;
+
+  engine.stop();
+  await sleep(60);
+  assert.equal(composerOf(window).textContent, edited, 'owner ka edit dispose par bhi clear NAHI hota');
 });
