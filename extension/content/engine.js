@@ -121,6 +121,8 @@
     // reply ban jaati - activation ke baad AAYE messages par hi react karna hai.
     const bootSynced = new Set();
     const pendingSuggestions = {};
+    let engineDraftChatKey = null; // jis chat ka draft composer mein pada hai (lifecycle binding)
+    let bannerChatKey = null; // jis chat ke context ka banner dikh raha hai
 
     // ---------- storage ----------
     function storageGet(area, key) {
@@ -192,6 +194,17 @@
 
     async function refreshToggle() {
       const chatKey = getChatKey();
+      // DRAFT LIFECYCLE: SPA composer chats ke beech shared hota hai - doosri
+      // chat ka engine-draft wahan pada na rahe. Sirf engine ka UNTOUCHED text
+      // clear karo (composer ab bhi lastEngineText ke barabar ho); owner ne ek
+      // bhi edit ki ho to text chhoo NAHI, sirf apni bookkeeping reset karo.
+      if (engineDraftChatKey && engineDraftChatKey !== chatKey) {
+        const dc = getComposer();
+        if (dc && composerText(dc) === lastEngineText) clearComposer(dc);
+        lastEngineText = '';
+        engineDraftChatKey = null;
+      }
+      if (bannerChatKey && bannerChatKey !== chatKey) removeBanner();
       let btn = document.getElementById(TOGGLE_ID);
       if (!chatKey) {
         if (btn) btn.remove();
@@ -642,6 +655,29 @@
     function composerHasText(composer) {
       return composerText(composer) !== '';
     }
+    // Engine-owned draft saaf karna. Sirf tab call hota hai jab composer ka
+    // text lastEngineText ke BARABAR ho (owner ne touch nahi kiya). Textarea/
+    // input par React-compatible native setter; contenteditable par select+delete.
+    function clearComposer(composer) {
+      const isField = composer.tagName === 'TEXTAREA' || composer.tagName === 'INPUT';
+      composer.focus();
+      engineInserting = true;
+      try {
+        if (isField) {
+          const proto = composer.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement : window.HTMLInputElement;
+          const desc = Object.getOwnPropertyDescriptor(proto.prototype, 'value');
+          if (desc && desc.set) desc.set.call(composer, ''); else composer.value = '';
+          composer.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          document.execCommand('selectAll', false);
+          document.execCommand('delete', false);
+          if (composerText(composer) !== '') {
+            composer.innerText = '';
+            composer.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+      } finally { setTimeout(() => { engineInserting = false; }, 0); }
+    }
 
     // RACE SAFETY: reply sirf wahi chat paaye jahan se request gayi thi.
     // Auto mode mein wahi reply apne aap send bhi ho sakti hai (guards ke saath).
@@ -683,7 +719,7 @@
       }
       composer.focus();
       engineInserting = true;
-      try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); } finally { setTimeout(() => { engineInserting = false; }, 0); }
+      try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); engineDraftChatKey = chatKey; } finally { setTimeout(() => { engineInserting = false; }, 0); }
       // Controlled frameworks (React) apna state async update karte hain, isliye
       // send button insert ke turant baad disabled reh sakta hai. Thoda ruk kar
       // button dobara dhoondo; enabled na mile to draft composer mein hi chhodo.
@@ -743,7 +779,7 @@
       if (composer && !composerHasText(composer)) {
         composer.focus();
         engineInserting = true;
-        try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); } finally { setTimeout(() => { engineInserting = false; }, 0); }
+        try { document.execCommand('insertText', false, text); lastEngineText = String(text).trim(); engineDraftChatKey = chatKey || getChatKey(); } finally { setTimeout(() => { engineInserting = false; }, 0); }
         showBanner('Draft ready. Padho, edit karo, phir KHUD send dabao.', text);
       } else {
         showBanner('Draft ready. Box mein tumhara text hai, isliye yahan rakha:', text);
@@ -752,6 +788,7 @@
 
     function showBanner(note, suggestionText) {
       removeBanner();
+      bannerChatKey = getChatKey();
       const footer = document.querySelector(config.footerSelector);
       if (!footer) return;
       const banner = document.createElement('div');
@@ -782,6 +819,7 @@
     function removeBanner() {
       const banner = document.getElementById(BANNER_ID);
       if (banner) banner.remove();
+      bannerChatKey = null;
     }
 
     boot();

@@ -58,7 +58,9 @@ function makeWorld({ sendMessage, initialHtml, seedLocal, testConfig, configOver
   });
   window.document.execCommand = (cmd, ui, text) => {
     const el = window.document.activeElement;
-    if (el) el.textContent += text;
+    if (!el) return false;
+    if (cmd === 'insertText') el.textContent += text;
+    if (cmd === 'delete') el.textContent = '';
     return true;
   };
   window.confirm = () => true;
@@ -128,8 +130,13 @@ function appendOutgoing(window, chatId, text) {
 }
 
 function switchChat(window, chatId, messages) {
-  window.document.querySelector('.screen').innerHTML = chatHtml(chatId, messages)
+  // Orbix jaise SPA mein composer chats ke beech SHARED rehta hai (sirf msgs/
+  // header re-render hote hain). Purana composer preserve karo, naya na banao.
+  const screen = window.document.querySelector('.screen');
+  const oldComposer = screen.querySelector('.composer');
+  screen.innerHTML = chatHtml(chatId, messages)
     .replace(/<div id="app"><div class="screen">|<\/div><\/div>$/g, '');
+  screen.querySelector('.composer').replaceWith(oldComposer);
 }
 
 test('happy path: naye incoming par suggestion composer mein (send NAHI)', async (t) => {
@@ -610,4 +617,90 @@ test('AUTO SEND: contract stable rahe to consent-active auto chat mein send hota
   appendIncoming(window, 'aaa', 'auto reply chahiye');
   await sleep(700);
   assert.equal(clicks, 1, 'stable contract par auto-send commit hota hai');
+});
+
+test('DRAFT LIFECYCLE: chat switch par engine ka untouched draft clear hota hai', async (t) => {
+  const reply = 'A KA ENGINE DRAFT';
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla' }]),
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'naya sawal');
+  await sleep(250);
+  assert.equal(composerOf(window).textContent, reply + ' (AI)', 'draft A ke composer mein');
+
+  switchChat(window, 'bbb', [{ out: false, text: 'B ka message' }]);
+  await sleep(150);
+  assert.equal(composerOf(window).textContent, '', 'B par A ka draft NAHI dikhta (untouched clear)');
+  assert.equal(calls.filter((c) => c.type !== 'GENERATE_REPLY').length, 0, 'koi send nahi hua');
+  assert.equal(window.document.querySelectorAll('.send').length, 1, 'composer ab bhi maujood');
+});
+
+test('DRAFT LIFECYCLE: owner ne draft edit kiya ho to switch par text preserve rehta hai', async (t) => {
+  const reply = 'EDIT HONE WALA DRAFT';
+  const { window } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla' }]),
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'sawal');
+  await sleep(250);
+  const edited = reply + ' (AI)' + ' + mera edit';
+  composerOf(window).textContent = edited;
+
+  switchChat(window, 'bbb', [{ out: false, text: 'B ka message' }]);
+  await sleep(150);
+  assert.equal(composerOf(window).textContent, edited, 'owner ka edit kabhi clear NAHI hota');
+});
+
+test('DRAFT LIFECYCLE: same chat mein stream mutations draft ko chhoo ke send NAHI karti', async (t) => {
+  const reply = 'STREAM TEST DRAFT';
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'STREAM REPLY' } }),
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'pichla' }]),
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'pehla sawal');
+  await sleep(250);
+  composerOf(window).textContent = reply; // engine draft composer mein (untouched)
+
+  // Streaming: last incoming row ka text badalta hai (naya row NAHI aata)
+  appendIncoming(window, 'aaa', 'stream part');
+  for (const part of ['stream part 1', 'stream part 12', 'stream part 123']) {
+    const rows = window.document.querySelectorAll('.msgs .msg .txt');
+    rows[rows.length - 1].textContent = part;
+    await sleep(60);
+  }
+  await sleep(250);
+  assert.equal(composerOf(window).textContent, reply, 'stream ke dauraan draft overwrite/clear NAHI');
+  assert.equal(calls.filter((c) => c.type !== 'GENERATE_REPLY').length, 0, 'koi silent send NAHI');
+});
+
+test('DRAFT LIFECYCLE: stale async completion + switchback par draft sahi chat mein deliver', async (t) => {
+  let resolveReply;
+  const pending = new Promise((r) => { resolveReply = r; });
+  const { window } = makeWorld({
+    sendMessage: () => pending,
+    initialHtml: chatHtml('aaa', [{ out: true, text: 'A ka pichla' }]),
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'A ka naya message');
+  await sleep(BATCH + 80);
+
+  switchChat(window, 'bbb', [{ out: false, text: 'B ka message' }]);
+  await sleep(80);
+  resolveReply({ ok: true, data: { reply: 'LATE REPLY FOR A' } });
+  await sleep(120);
+  assert.equal(composerOf(window).textContent, '', 'stale reply B ke composer mein NAHI gayi');
+  assert.ok(!bannerText(window).includes('LATE REPLY FOR A'), 'stale reply ka banner B par NAHI');
+
+  switchChat(window, 'aaa', [{ out: true, text: 'A ka pichla' }, { out: false, text: 'A ka naya message' }]);
+  await sleep(150);
+  const got = composerOf(window).textContent || bannerText(window);
+  assert.ok(got.includes('LATE REPLY FOR A'), 'switchback par A mein deliver');
 });
