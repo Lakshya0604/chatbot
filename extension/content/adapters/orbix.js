@@ -227,6 +227,18 @@
     return true;
   }
 
+  // EXACT snapshot equality (length + per-message role/text). Naya BIND sirf isi par:
+  // prefix-consistency akeli incomplete/stale capture ya unobserved prefix-twin ko
+  // galat chat ka context dene ka rasta deti hai (privacy risk, fail-closed requirement).
+  function chatsExact(a, b) {
+    if (!a || !b || a.length === 0 || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i].role !== b[i].role) return false;
+      if (msgCompareText(a[i]) !== msgCompareText(b[i])) return false;
+    }
+    return true;
+  }
+
   function sigOf(rendered) {
     if (!rendered || !rendered.length) return '';
     return rendered.length + '|' + (rendered[0] ? rendered[0].text : '') + '|' + (rendered[rendered.length - 1] ? rendered[rendered.length - 1].text : '');
@@ -253,13 +265,25 @@
       const rendered = renderedMessages();
       if (!rendered || rendered.length === 0) return { state: 'unverified', matches: 0 };
       if (condemnedSig !== null && sigOf(rendered) === condemnedSig) return { state: 'unverified', matches: 0 }; // stale-render window
-      let matches = 0;
-      let matchId = null;
+      // CONSERVATIVE BIND (Nov 4 main steering): naya bind SIRF exact snapshot equality
+      // par. Append-only prefix-consistency akeli bind ke liye kaafi NAHI - unequal-length
+      // capture (incomplete/stale) ya unobserved prefix-twin galat chat ko consent/draft
+      // context de sakta hai. Bind ke BAAD append-growth anchored continuity se chalti hai.
+      let exact = 0, exactId = null;
+      let boundConsistent = false, otherConsistent = 0;
       for (const kv of candidates) {
-        if (chatsConsistent(kv[1], rendered)) { matches++; matchId = kv[0]; }
+        if (chatsExact(kv[1], rendered)) { exact++; exactId = kv[0]; continue; }
+        if (chatsConsistent(kv[1], rendered)) {
+          if (kv[0] === verifiedId) boundConsistent = true; else otherConsistent++;
+        }
       }
-      if (matches === 1) return { state: 'verified', id: matchId, matches };
-      if (matches > 1) return { state: 'ambiguous', matches };
+      const total = exact + otherConsistent + (boundConsistent ? 1 : 0);
+      if (exact === 1 && otherConsistent === 0) return { state: 'verified', id: exactId, matches: 1 };
+      if (total > 1) return { state: 'ambiguous', matches: total };
+      // ANCHORED CONTINUITY: pehle se bound chat ka render append-only grow kare (naya
+      // message aaya par koi fresh capture nahi) to bind stable. Ye growth allowance SIRF
+      // established bind par hai - kabhi naya bind prefix par nahi banta.
+      if (exact === 0 && boundConsistent && otherConsistent === 0) return { state: 'verified', id: verifiedId, matches: 1 };
       return { state: 'unverified', matches: 0 };
     }
 

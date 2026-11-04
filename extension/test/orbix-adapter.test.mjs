@@ -819,28 +819,121 @@ test('Orbix adapter FAIL-CLOSED markdown: unpaired marker literal rehta hai - st
   assert.ok(w.__captured, 'unpaired asterisk literal preserved dono side -> bind');
 });
 
-test('Orbix adapter INTENT: INCOMPLETE capture (captured = purana snapshot, rendered ka prefix) = single candidate par bind HOTA HAI (append-only model)', async (t) => {
-  // DOCUMENTED INTENT (adapter comment line ~216): correlation append-only prefix
-  // consistency hai - capture/render same chat ke alag SNAPSHOTS ho sakte hain
-  // (streaming/lag). Prefix equal + SINGLE candidate = bind. Safety net: doosra
-  // prefix-twin capture hua to AMBIGUOUS (test line ~577). Unobserved-twin =
-  // documented residual. Ye test intent pin karta hai, fail-closed expectation NAHI.
-  const msgs = [{ role: 'user', content: MD_USER }]; // capture mein assistant reply abhi nahi (lag)
-  const html = mdThread(MD_USER, '<strong>Samundar</strong> ka fact');
-  const w = makeWorldMd(html, t, { [CHAT_A]: msgs }, [CHAT_A]);
-  await tick(150);
-  assert.ok(w.__captured, 'append-only snapshot model: prefix-consistent single candidate bind hota hai');
-  assert.ok(w.__captured.getChatKey().includes(CHAT_A), 'sahi chat id se bind');
-});
+// ---------- CONSERVATIVE BIND (Nov 4): exact-equality bind + anchored continuity ----------
+// Risk jo ye tests pin karte hain: incomplete/stale prefix-consistent capture ya unobserved
+// prefix-twin se GALAT chat ko consent/draft context milna (privacy). Naya bind = SIRF
+// exact snapshot (length + role/text). Append-growth SIRF established bind par.
 
-test('Orbix adapter INTENT: capture NAYA snapshot (rendered ka append) = single candidate par bind HOTA HAI (dono direction append-only)', async (t) => {
+test('Orbix adapter FAIL-CLOSED: render single candidate ka STRICT PREFIX (capture naya snapshot) = bind NAHI', async (t) => {
+  // Purani append-only semantics mein bind hota tha - wahi wrong-chat privacy risk tha.
   const msgs = [
     { role: 'user', content: MD_USER },
     { role: 'assistant', content: 'Samundar ka fact' },
-    { role: 'user', content: 'naya append jo abhi render mein nahi' },
   ];
-  const html = mdThread(MD_USER, 'Samundar ka fact');
+  const html = mdThread(MD_USER.slice(0, 40), 'kuch aur'); // rendered alag chhota thread
+  // rendered ko candidate ka strict prefix banate hain: pehla message same, render 1 msg, capture 2
+  const w = makeWorldMd('<main class="center"><div class="thread">' +
+    '<div class="msg user"><div class="bubble">' + MD_USER + '</div></div>' +
+    '</div><form class="composer"><textarea></textarea><button class="btn primary" type="submit">Send</button></form></main>' +
+    '<div class="chat-row on"><button>md chat · Nov 4</button><button class="x">×</button></div>',
+    t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.equal(w.__captured, null, 'render = candidate ka strict prefix -> bind NAHI (exact-equality required)');
+});
+
+test('Orbix adapter FAIL-CLOSED: candidate render ka STRICT PREFIX (capture purana snapshot, koi prior bind nahi) = bind NAHI', async (t) => {
+  const msgs = [{ role: 'user', content: MD_USER }]; // capture purana: sirf 1 message
+  const html = mdThread(MD_USER, '<strong>Samundar</strong> ka fact'); // render 2 messages
   const w = makeWorldMd(html, t, { [CHAT_A]: msgs }, [CHAT_A]);
   await tick(150);
-  assert.ok(w.__captured, 'reverse-direction snapshot bhi bind hota hai (append-only dono taraf)');
+  assert.equal(w.__captured, null, 'candidate = render ka strict prefix -> naya bind NAHI');
+});
+
+test('Orbix adapter FAIL-CLOSED: render twin A ka EXACT, twin B ka prefix (dono captured) = AMBIGUOUS -> bind NAHI', async (t) => {
+  const msgsA = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: 'Samundar ka fact' },
+  ];
+  const msgsB = msgsA.concat([{ role: 'user', content: 'B ka extra message' }]); // B = A + append
+  const html = mdThread(MD_USER, 'Samundar ka fact'); // render == A exactly, B ka prefix
+  const w = makeWorldMd(html, t, { [CHAT_A]: msgsA, [CHAT_B]: msgsB }, [CHAT_A, CHAT_B]);
+  await tick(150);
+  assert.equal(w.__captured, null, 'exact twin + prefix twin = ambiguous, bind NAHI');
+});
+
+test('Orbix adapter CONTINUITY: exact bind ke BAAD render append-only grow kare (koi fresh capture nahi) = bind STABLE', async (t) => {
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: 'Samundar ka fact' },
+  ];
+  const w = makeWorldMd(mdThread(MD_USER, 'Samundar ka fact'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.ok(w.__captured, 'exact par bind');
+  const key1 = w.__captured.getChatKey();
+  assert.ok(key1.includes(CHAT_A), 'sahi id');
+  // Site par naya message aaya (render grow) par chat-refetch nahi hua (koi fresh capture NAHI)
+  const t2 = w.document.querySelector('.thread');
+  const row = w.document.createElement('div');
+  row.className = 'msg assistant';
+  row.innerHTML = '<div class="steps">s</div><div class="answer">naya jawab jo capture mein nahi</div>';
+  t2.insertBefore(row, t2.children[2]);
+  await tick(150);
+  const key2 = w.__captured.getChatKey();
+  assert.ok(key2 && key2.includes(CHAT_A), 'anchored continuity: append-growth par bind stable');
+});
+
+test('Orbix adapter FAIL-CLOSED: bound chat ke grow karte render se PREFIX-consistent doosra capture aaye = AMBIGUOUS', async (t) => {
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: 'Samundar ka fact' },
+  ];
+  const w = makeWorldMd(mdThread(MD_USER, 'Samundar ka fact'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.ok(w.__captured, 'exact par bind');
+  // Render grow (1 append), phir doosri chat ka capture jo grown render ka prefix hai
+  const t2 = w.document.querySelector('.thread');
+  const row = w.document.createElement('div');
+  row.className = 'msg assistant';
+  row.innerHTML = '<div class="steps">s</div><div class="answer">B wala extra</div>';
+  t2.insertBefore(row, t2.children[2]);
+  w.__chatData[CHAT_B] = msgs.concat([{ role: 'assistant', content: 'B wala extra' }]); // twin B == grown render EXACTLY
+  w.__pageFetch(CHAT_B);
+  await tick(150);
+  const key = w.__captured.getChatKey();
+  assert.equal(key, null, 'twin capture = ambiguity -> getChatKey null (fail-closed)');
+});
+
+test('Orbix adapter CONTINUITY: bound id ka STALE capture (purana snapshot overwrite) bind NAHI todta', async (t) => {
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: 'Samundar ka fact' },
+  ];
+  const w = makeWorldMd(mdThread(MD_USER, 'Samundar ka fact'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.ok(w.__captured, 'exact par bind');
+  // Render grow + bound id ka stale (purana 2-msg) capture dobara aaye (late async response)
+  const t2 = w.document.querySelector('.thread');
+  const row = w.document.createElement('div');
+  row.className = 'msg assistant';
+  row.innerHTML = '<div class="steps">s</div><div class="answer">naya append</div>';
+  t2.insertBefore(row, t2.children[2]);
+  w.__pageFetch(CHAT_A); // same stale dataMap content (2 msgs) - late duplicate response
+  await tick(150);
+  const key = w.__captured.getChatKey();
+  assert.ok(key && key.includes(CHAT_A), 'stale same-id snapshot overwrite par bind stable (append-only continuity)');
+});
+
+test('Orbix adapter FAIL-CLOSED: bound id ka DIVERGENT capture (forged/tampered same-id) = bind TUTTA hai', async (t) => {
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: 'Samundar ka fact' },
+  ];
+  const w = makeWorldMd(mdThread(MD_USER, 'Samundar ka fact'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.ok(w.__captured, 'exact par bind');
+  w.__chatData[CHAT_A] = [{ role: 'user', content: 'bilkul alag content' }];
+  w.__pageFetch(CHAT_A); // divergent same-id capture (forge/tamper/stale-cross)
+  await tick(150);
+  const key = w.__captured.getChatKey();
+  assert.equal(key, null, 'divergent same-id capture = fail-closed unbind');
 });
