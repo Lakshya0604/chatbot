@@ -65,6 +65,11 @@
 //     (sirf response message bodies - page-visible data; in-memory document session
 //     only; logs mein sirf chat id + seq).
 // (5) Backend galat chat same id par serve kare = undetectable.
+// (7) RENDER-EQUIVALENT twins: do alag raw chats jo markdown-normalization ke baad SAME
+//     text dete hain (sirf formatting/link-destination/code-marker farak) - dono consistent
+//     count hote hain = AMBIGUOUS = fail-closed. Normalization matches sirf BADHA sakti hai,
+//     exactly-1 rule unchanged = ye kabhi false-verified nahi banati, sirf fail-closed badhati
+//     hai (content-collision direction safe). User-side compare strict/plain rehta hai.
 // (6) Identical-content chats JO session mein dono fetch ho chuke = fundamental
 //     ambiguous (koi client logic unhe distinguish nahi kar sakta) = permanent
 //     fail-closed jab tak diverge na hon.
@@ -158,6 +163,44 @@
 
   function normMsgText(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
 
+  // react-markdown 9 + remark-gfm (site ka renderer: client/src/Rich.jsx) ke TEXT output ka
+  // grounded narrow equivalent - SIRF assistant messages ke liye. User bubbles plain text hain
+  // (div.bubble, koi markdown render nahi) - unki equivalence expand NAHI hoti, strict compare.
+  // Renderer ke text-dropping rules hi implement huye hain, broad char-stripping NAHI:
+  // sirf PAIRED emphasis delimiters, link text (destination text output mein nahi aata),
+  // image construct (img ka koi innerText nahi), line-anchored heading/list/quote markers,
+  // GFM table cell text. Jo construct cover nahi (mermaid/chart custom components -> SVG/JSON,
+  // inline HTML) correlate nahi hoga = fail-closed (safe direction).
+  function mdToPlain(md) {
+    const out = [];
+    let fence = null;
+    for (const line of String(md || '').split('\n')) {
+      const f = /^\s*```(\w*)\s*$/.exec(line);
+      if (f) { fence = fence === null ? (f[1] || '') : null; continue; }
+      if (fence !== null) { out.push(line); continue; } // code block source = rendered text (mermaid/chart render se mismatch = fail-closed)
+      let s = line;
+      if (!s.trim()) continue;
+      if (/^\s*\|?[\s:|-]+\|?\s*$/.test(s) && s.includes('-')) continue; // GFM table delimiter row = structure, no text
+      s = s.replace(/^\s{0,3}#{1,6}\s+/, '');            // heading marker
+      s = s.replace(/^\s{0,3}>\s?/, '');                 // blockquote marker
+      s = s.replace(/^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s+/, ''); // list marker
+      s = s.replace(/^\[[ xX]\]\s+/, '');               // task checkbox (input, no text)
+      if (/^\s*\|.*\|\s*$/.test(s)) { s = s.replace(/^\s*\||\|\s*$/g, '').replace(/\|/g, ' '); } // table row -> cells
+      s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, '');     // image: no text output
+      s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');  // link: children text only
+      s = s.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '$2'); // paired strong
+      s = s.replace(/(\*|_)(?=\S)([^*_\n]*?\S)\1(?!\w)/g, '$2'); // paired em (unpaired markers literal rehte hain - strip NAHI)
+      s = s.replace(/~~(?=\S)([\s\S]*?\S)~~/g, '$1');  // GFM strikethrough
+      s = s.replace(/`([^`\n]*)`/g, '$1');                // inline code
+      out.push(s);
+    }
+    return out.join('\n');
+  }
+
+  // Role-aware compare text: assistant captured bodies markdown RAW hain (render se pehle),
+  // isliye unka render-equivalent plain; user messages dono side plain (strict).
+  function msgCompareText(m) { return (m.role === 'assistant' && typeof m.plain === 'string') ? m.plain : m.text; }
+
   function renderedMessages() {
     const thread = document.querySelector(SEL.thread);
     if (!thread) return null;
@@ -178,7 +221,8 @@
     const n = Math.min(a.length, b.length);
     if (n === 0) return false;
     for (let i = 0; i < n; i++) {
-      if (a[i].role !== b[i].role || a[i].text !== b[i].text) return false;
+      if (a[i].role !== b[i].role) return false;
+      if (msgCompareText(a[i]) !== msgCompareText(b[i])) return false;
     }
     return true;
   }
@@ -234,7 +278,13 @@
     }
 
     function capture(id, messages) {
-      const msgs = messages.map((x) => ({ role: String((x && x.role) || ''), text: normMsgText(x && x.content) }));
+      const msgs = messages.map((x) => {
+        const role = String((x && x.role) || '');
+        const raw = normMsgText(x && x.content);
+        // assistant raw markdown ko render-equivalent plain mein bhi rakho (correlation
+        // isi se hota hai); raw text bhi retained (evidence/debug). User: sirf strict text.
+        return { role, text: raw, plain: role === 'assistant' ? normMsgText(mdToPlain(x && x.content)) : raw };
+      });
       if (candidates.has(id)) candidates.delete(id); // refresh FIFO order
       candidates.set(id, msgs);
       if (candidates.size > MAX_CANDIDATES) {

@@ -711,3 +711,110 @@ test('Orbix adapter v21: identical-content node-replacement BINA fetch (cache re
   assert.equal(w.__instances[0].stopped, false, 'same-content re-render par instance stable (content-equivalent)');
   assert.equal(w.__instances[0].cfg.getChatKey(), key1, 'key wahi (koi nayi consent nahi li gayi)');
 });
+
+// ---------- markdown render-correlation (live finding Nov 4: react-markdown strips formatting) ----------
+// Site assistant replies react-markdown + remark-gfm se render hote hain (client/src/Rich.jsx);
+// hook RAW API bodies capture karta hai. Assistant compare render-equivalent plain text par,
+// user compare STRICT plain par (user equivalence expand nahi).
+
+function makeWorldMd(html, t, dataMap, extraFetch) {
+  const dom = new JSDOM(`<!DOCTYPE html><html><body>${html}</body></html>`, { url: 'https://orbix-video-ly.web.app/', runScripts: 'dangerously' });
+  const { window } = dom;
+  t.after(() => window.close());
+  window.__captured = null;
+  window.ChatEngine = { createChatAssistant: (cfg) => { window.__captured = cfg; return { stop() {} }; } };
+  installSiteFetch(window, dataMap);
+  window.eval(HOOK);
+  for (const id of extraFetch) window.__pageFetch(id);
+  window.eval(SCRIPT);
+  return window;
+}
+function mdThread(userText, ansHtml) {
+  return '<main class="center"><div class="thread">' +
+    '<div class="msg user"><div class="bubble">' + userText + '</div></div>' +
+    '<div class="msg assistant"><div class="steps">s</div><div class="answer">' + ansHtml + '</div><button class="chip">c</button></div>' +
+    '</div><form class="composer"><textarea></textarea><button class="btn primary" type="submit">Send</button></form></main>' +
+    '<div class="chat-row on"><button>md chat · Nov 4</button><button class="x">×</button></div>';
+}
+const MD_USER = 'Test Beta: samundar ke baare mein ek line mein interesting fact batao';
+
+test('Orbix adapter markdown: raw bold/italic markers vs rendered plain -> bind (live failure ka fix)', async (t) => {
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: '**Samundar ki sabse gehri** jagah *Mariana Trench* hai, jo **lagbhag 11km** tak nichli hai.' },
+  ];
+  const html = mdThread(MD_USER, '<strong>Samundar ki sabse gehri</strong> jagah <em>Mariana Trench</em> hai, jo <strong>lagbhag 11km</strong> tak nichli hai.');
+  const w = makeWorldMd(html, t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(120);
+  assert.ok(w.__captured, 'markdown raw vs rendered plain par bind hona chahiye');
+  assert.ok(w.__captured.getChatKey().includes(CHAT_A), 'sahi chat id se bind');
+});
+
+test('Orbix adapter markdown: link text vs rendered anchor text -> bind; destination compare mein nahi', async (t) => {
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: 'Dekho [Orbix](https://orbix-video-ly.web.app) site abhi.' },
+  ];
+  const w = makeWorldMd(mdThread(MD_USER, 'Dekho Orbix site abhi.'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(120);
+  assert.ok(w.__captured, 'link text render-equivalence par bind');
+});
+
+test('Orbix adapter markdown: heading/list/quote/code markers vs rendered text -> bind', async (t) => {
+  const raw = '## Facts\n- pehla point\n- dusra point\n> quote line\n`inline code` aur yeh:\n```js\nconst a = 1;\n```';
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: raw },
+  ];
+  const w = makeWorldMd(mdThread(MD_USER, 'Facts pehla point dusra point quote line inline code aur yeh: const a = 1;'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(120);
+  assert.ok(w.__captured, 'heading/list/quote/code render-equivalence par bind');
+});
+
+test('Orbix adapter FAIL-CLOSED markdown: render-equivalent TWIN raws (sirf formatting farak) = AMBIGUOUS -> bind NAHI', async (t) => {
+  const a = [{ role: 'user', content: MD_USER }, { role: 'assistant', content: '**plain fact** yahan' }];
+  const b = [{ role: 'user', content: MD_USER }, { role: 'assistant', content: 'plain fact yahan' }];
+  const w = makeWorldMd(mdThread(MD_USER, 'plain fact yahan'), t, { [CHAT_A]: a, [CHAT_B]: b }, [CHAT_A, CHAT_B]);
+  await tick(150);
+  assert.equal(w.__captured, null, 'render-equivalent alag raw chats = undecidable = fail-closed');
+});
+
+test('Orbix adapter FAIL-CLOSED markdown: same link text ALAG destinations (twin) = AMBIGUOUS -> bind NAHI', async (t) => {
+  const a = [{ role: 'user', content: MD_USER }, { role: 'assistant', content: 'ye [link](https://evil.example) dekho' }];
+  const b = [{ role: 'user', content: MD_USER }, { role: 'assistant', content: 'ye [link](https://good.example) dekho' }];
+  const w = makeWorldMd(mdThread(MD_USER, 'ye link dekho'), t, { [CHAT_A]: a, [CHAT_B]: b }, [CHAT_A, CHAT_B]);
+  await tick(150);
+  assert.equal(w.__captured, null, 'destination-alag render-same twins undecidable = fail-closed');
+});
+
+test('Orbix adapter markdown: user side STRICT - literal markers in bubble must match exactly', async (t) => {
+  // user ne literal ** bheja; bubble wahi dikhata hai (koi render nahi) -> strict match -> bind
+  const msgs = [
+    { role: 'user', content: '**not bold** bola maine' },
+    { role: 'assistant', content: '**theek hai** samjha' },
+  ];
+  const w = makeWorldMd(mdThread('**not bold** bola maine', 'theek hai samjha'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(120);
+  assert.ok(w.__captured, 'literal markers dono side same -> strict match -> bind');
+});
+
+test('Orbix adapter FAIL-CLOSED markdown: captured user text vs rendered bubble farak = bind NAHI (user equivalence expand nahi)', async (t) => {
+  const msgs = [
+    { role: 'user', content: 'not bold bola maine' },
+    { role: 'assistant', content: '**theek hai** samjha' },
+  ];
+  const w = makeWorldMd(mdThread('**not bold** bola maine', 'theek hai samjha'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.equal(w.__captured, null, 'user side markdown-normalize NAHI - mismatch = unverified = fail-closed');
+});
+
+test('Orbix adapter FAIL-CLOSED markdown: unpaired marker literal rehta hai - stripped raw se match NAHI', async (t) => {
+  // '2 * 3 = 6' mein * paired emphasis nahi; renderer literal dikhata hai
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: '2 * 3 = 6 hota hai' },
+  ];
+  const w = makeWorldMd(mdThread(MD_USER, '2 * 3 = 6 hota hai'), t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(120);
+  assert.ok(w.__captured, 'unpaired asterisk literal preserved dono side -> bind');
+});
