@@ -740,3 +740,26 @@ test('DRAFT LIFECYCLE: engine stop par owner-edited draft preserve rehta hai', a
   await sleep(60);
   assert.equal(composerOf(window).textContent, edited, 'owner ka edit dispose par bhi clear NAHI hota');
 });
+
+test('CONTEXT WINDOW: provider payload mein sirf aakhri 20 messages, roles mapped, last = naya incoming', async (t) => {
+  const msgs = [];
+  for (let i = 1; i <= 24; i++) msgs.push({ out: i % 2 === 0, text: 'purana-' + i });
+  const { window, calls } = makeWorld({
+    sendMessage: async () => ({ ok: true, data: { reply: 'R' } }),
+    initialHtml: chatHtml('aaa', msgs),
+  }, t);
+  await enableChat(window);
+  await primeHistory(window);
+  appendIncoming(window, 'aaa', 'naya-aakhri');
+  await sleep(250);
+  const gen = calls.find((c) => c.type === 'GENERATE_REPLY');
+  assert.ok(gen, 'provider call hui');
+  const pm = gen.payload.messages;
+  assert.equal(pm.length, 20, '25 rows mein se sirf aakhri 20 (CONTEXT_MESSAGE_LIMIT)');
+  // NOTE: payload objects window.eval realm ke hain (prototype alag) - field-wise compare.
+  assert.equal(pm[pm.length - 1].role, 'user', 'last = naya incoming, role user');
+  assert.equal(pm[pm.length - 1].content, 'naya-aakhri', 'last = naya incoming text');
+  assert.equal(pm[0].role, 'assistant', 'window ka pehla = purana-6 (out -> assistant)');
+  assert.equal(pm[0].content, 'purana-6', 'window ka pehla = purana-6 text');
+  for (const m of pm) assert.ok(m.role === 'user' || m.role === 'assistant', 'sirf user/assistant roles');
+});

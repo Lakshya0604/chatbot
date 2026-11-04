@@ -818,3 +818,29 @@ test('Orbix adapter FAIL-CLOSED markdown: unpaired marker literal rehta hai - st
   await tick(120);
   assert.ok(w.__captured, 'unpaired asterisk literal preserved dono side -> bind');
 });
+
+test('Orbix adapter INTENT: INCOMPLETE capture (captured = purana snapshot, rendered ka prefix) = single candidate par bind HOTA HAI (append-only model)', async (t) => {
+  // DOCUMENTED INTENT (adapter comment line ~216): correlation append-only prefix
+  // consistency hai - capture/render same chat ke alag SNAPSHOTS ho sakte hain
+  // (streaming/lag). Prefix equal + SINGLE candidate = bind. Safety net: doosra
+  // prefix-twin capture hua to AMBIGUOUS (test line ~577). Unobserved-twin =
+  // documented residual. Ye test intent pin karta hai, fail-closed expectation NAHI.
+  const msgs = [{ role: 'user', content: MD_USER }]; // capture mein assistant reply abhi nahi (lag)
+  const html = mdThread(MD_USER, '<strong>Samundar</strong> ka fact');
+  const w = makeWorldMd(html, t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.ok(w.__captured, 'append-only snapshot model: prefix-consistent single candidate bind hota hai');
+  assert.ok(w.__captured.getChatKey().includes(CHAT_A), 'sahi chat id se bind');
+});
+
+test('Orbix adapter INTENT: capture NAYA snapshot (rendered ka append) = single candidate par bind HOTA HAI (dono direction append-only)', async (t) => {
+  const msgs = [
+    { role: 'user', content: MD_USER },
+    { role: 'assistant', content: 'Samundar ka fact' },
+    { role: 'user', content: 'naya append jo abhi render mein nahi' },
+  ];
+  const html = mdThread(MD_USER, 'Samundar ka fact');
+  const w = makeWorldMd(html, t, { [CHAT_A]: msgs }, [CHAT_A]);
+  await tick(150);
+  assert.ok(w.__captured, 'reverse-direction snapshot bhi bind hota hai (append-only dono taraf)');
+});
